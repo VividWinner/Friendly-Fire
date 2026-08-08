@@ -1,0 +1,3380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Friendly Fire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blackout: #12141c;
+    --blackout-2: #1a1e2a;
+    --warning: #f4c430;
+    --impact: #ff4655;
+    --cover: #2dd4bf;
+    --paper: #eef1f6;
+    --smoke: #6b7280;
+    --stripe-size: 14px;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  /* Guarantees the native `hidden` attribute always wins, regardless of
+     what other display rules a specific ID might have. Without this, an
+     ID selector like #deploy-row { display: flex } silently overrides
+     [hidden] because ID specificity beats a bare attribute selector. */
+  [hidden] { display: none !important; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: var(--blackout);
+    color: var(--paper);
+    font-family: 'Inter', sans-serif;
+    position: fixed;
+    inset: 0;
+  }
+
+  /* ---- Hazard tape frame (signature element) ---- */
+  .hazard-bar {
+    position: fixed;
+    left: 0; right: 0;
+    height: var(--stripe-size);
+    background: repeating-linear-gradient(
+      45deg,
+      var(--warning) 0, var(--warning) 18px,
+      var(--blackout) 18px, var(--blackout) 36px
+    );
+    z-index: 50;
+    pointer-events: none;
+  }
+  .hazard-bar.top { top: 0; }
+  .hazard-bar.bottom { bottom: 0; }
+
+  /* ---- Ambient background ---- */
+  #bg-grid {
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(238,241,246,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(238,241,246,0.035) 1px, transparent 1px);
+    background-size: 40px 40px;
+    z-index: 0;
+  }
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.35;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .blob1 { width: 380px; height: 380px; background: var(--impact); top: -80px; left: -100px; }
+  .blob2 { width: 320px; height: 320px; background: var(--cover); bottom: -100px; right: -80px; }
+  .blob3 { width: 260px; height: 260px; background: var(--warning); top: 40%; left: 60%; opacity: 0.18; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .blob1 { animation: drift1 22s ease-in-out infinite; }
+    .blob2 { animation: drift2 26s ease-in-out infinite; }
+    .blob3 { animation: drift3 30s ease-in-out infinite; }
+  }
+  @keyframes drift1 {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(60px, 40px); }
+  }
+  @keyframes drift2 {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(-50px, -30px); }
+  }
+  @keyframes drift3 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-30px, 50px) scale(1.1); }
+  }
+
+  /* ---- Pause button (in-game only, top-right) ---- */
+  #pause-btn {
+    position: fixed;
+    top: calc(var(--stripe-size) + 14px);
+    right: 16px;
+    z-index: 60;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1px solid rgba(238,241,246,0.2);
+    background: rgba(18,20,28,0.6);
+    backdrop-filter: blur(6px);
+    color: var(--paper);
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  #pause-btn:hover { border-color: var(--warning); }
+  #pause-btn:active { transform: scale(0.92); }
+
+  /* ---- Pause menu: a small anchored panel top-right, not a full modal ---- */
+  #pause-overlay {
+    position: fixed;
+    top: calc(var(--stripe-size) + 66px);
+    right: 16px;
+    z-index: 65;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    width: 200px;
+    background: var(--blackout-2);
+    border: 1px solid rgba(238,241,246,0.15);
+    border-radius: 8px;
+    padding: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  #pause-overlay.visible { display: flex; }
+
+  #settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(10,11,16,0.75);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  #settings-overlay.visible { display: flex; }
+
+  #settings-card {
+    width: 100%;
+    max-width: 380px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background: var(--blackout-2);
+    border: 1px solid rgba(238,241,246,0.15);
+    border-radius: 8px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  #settings-preset-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .preset-btn {
+    padding: 10px 4px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    background: rgba(238,241,246,0.05);
+    border: 1px solid rgba(238,241,246,0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  .preset-btn:hover { color: var(--paper); border-color: rgba(238,241,246,0.6); }
+  .preset-btn.active { color: var(--blackout); background: var(--warning); border-color: var(--warning); }
+
+  .settings-row label {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    margin-bottom: 6px;
+  }
+  .settings-row label span.value { color: var(--cover); }
+
+  .settings-row input[type="range"] {
+    width: 100%;
+    accent-color: var(--warning);
+    cursor: pointer;
+  }
+
+  .settings-divider {
+    height: 1px;
+    background: rgba(238,241,246,0.12);
+    border: none;
+    margin: 0;
+  }
+
+  #mute-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #mute-toggle-row span {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+  }
+  #mute-toggle-btn {
+    padding: 8px 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    background: rgba(238,241,246,0.05);
+    border: 1px solid rgba(238,241,246,0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  #mute-toggle-btn.active { color: var(--blackout); background: var(--impact); border-color: var(--impact); }
+
+  #settings-close-btn {
+    width: 100%;
+    padding: 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    background: transparent;
+    border: 1px solid rgba(238,241,246,0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  #settings-close-btn:hover { color: var(--paper); border-color: rgba(238,241,246,0.8); }
+
+  /* ---- Party / lobby roster ---- */
+  #party-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .party-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(238,241,246,0.05);
+    border: 1px solid rgba(238,241,246,0.15);
+    border-radius: 4px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+  .party-row .dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .party-row .name { flex: 1; text-align: left; color: var(--paper); }
+  .party-row .ready-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--smoke);
+  }
+  .party-row.is-ready .ready-badge { color: var(--cover); }
+
+  /* ---- Room code chip — lives in the party lobby now, not in-game, since
+     that's the moment you actually need to read it out to a friend ---- */
+  #party-code-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(244,196,48,0.08);
+    border: 1px solid rgba(244,196,48,0.4);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  #party-code-row:hover { border-color: var(--warning); background: rgba(244,196,48,0.14); }
+  #party-code-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--smoke);
+  }
+  #party-code-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 6px;
+    color: var(--warning);
+  }
+
+  #ready-btn.is-ready {
+    background: var(--cover);
+    border-bottom-color: #1a9e8f;
+    color: var(--blackout);
+  }
+
+  /* ---- Mini-map (in-game only, top-left) ---- */
+  #minimap {
+    position: fixed;
+    top: calc(var(--stripe-size) + 14px);
+    left: 16px;
+    z-index: 20;
+    border-radius: 6px;
+    border: 1px solid rgba(238,241,246,0.25);
+    background: rgba(18,20,28,0.6);
+    backdrop-filter: blur(4px);
+  }
+
+  /* ---- Round-start countdown ---- */
+  #countdown-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  #countdown-overlay.visible { display: flex; }
+  #countdown-number {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 160px;
+    color: var(--warning);
+    text-shadow: 0 0 30px rgba(244,196,48,0.7), 0 0 60px rgba(255,70,85,0.4);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #countdown-number.pop { animation: countdownPop 0.9s ease-out; }
+  }
+  @keyframes countdownPop {
+    0% { transform: scale(1.6); opacity: 0; }
+    30% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(0.9); opacity: 0; }
+  }
+
+  /* ---- HUD stat bars (bottom-right, in-game) ---- */
+  #hud-stats {
+    position: fixed;
+    right: 16px;
+    bottom: calc(var(--stripe-size) + 14px);
+    z-index: 20;
+    width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .stat-bar-track {
+    width: 100%;
+    height: 12px;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(238,241,246,0.2);
+    overflow: hidden;
+  }
+  .stat-bar-fill {
+    height: 100%;
+    border-radius: 6px 0 0 6px;
+    transition: width 0.15s ease;
+  }
+  #health-fill { background: linear-gradient(90deg, #8b2635, var(--impact)); width: 100%; }
+  #stamina-fill { background: linear-gradient(90deg, #1a8f7f, var(--cover)); width: 100%; }
+
+  /* ---- Inventory (bottom-center, in-game) ---- */
+  #inventory-bar {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--stripe-size) + 14px);
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    gap: 6px;
+  }
+  .inv-slot {
+    width: 46px;
+    height: 46px;
+    border-radius: 6px;
+    background: rgba(18,20,28,0.7);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(238,241,246,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    position: relative;
+    cursor: pointer;
+  }
+  .inv-slot.equipped { border-color: var(--warning); box-shadow: 0 0 10px rgba(244,196,48,0.5); }
+  .inv-slot.consumable { border-color: rgba(45,212,191,0.5); }
+  .inv-slot.empty { border-style: dashed; opacity: 0.35; cursor: default; }
+  .inv-slot .ammo-badge {
+    position: absolute;
+    bottom: 1px;
+    right: 3px;
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--paper);
+  }
+  .inv-slot .slot-drop {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--impact);
+    color: var(--paper);
+    font-size: 11px;
+    line-height: 17px;
+    text-align: center;
+    cursor: pointer;
+    display: none;
+    border: 1px solid var(--blackout);
+  }
+  .inv-slot:hover .slot-drop { display: block; }
+  @media (pointer: coarse) {
+    /* No hover on touch — always show the drop button so it's reachable */
+    .inv-slot .slot-drop { display: block; }
+  }
+
+  /* ---- Mobile action buttons (sprint / interact) — sit just above the
+     movement joystick and aim-stick respectively so nothing overlaps ---- */
+  .action-btn {
+    position: fixed;
+    z-index: 25;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    background: rgba(238,241,246,0.1);
+    border: 1px solid rgba(238,241,246,0.3);
+    color: var(--paper);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+  }
+  .action-btn.visible { display: flex; }
+  .action-btn.active-press { background: rgba(244,196,48,0.35); border-color: var(--warning); }
+  #sprint-btn { left: 46px; bottom: calc(var(--stripe-size) + 158px); }
+  #interact-btn { right: 46px; bottom: calc(var(--stripe-size) + 158px); }
+
+  /* ---- Aim / fire joystick (touch only, right side): drag to aim, hold
+     to keep firing — the twin-stick-shooter half of the movement joystick ---- */
+  #aim-stick {
+    position: fixed;
+    right: 28px;
+    bottom: calc(var(--stripe-size) + 28px);
+    z-index: 25;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: rgba(255,70,85,0.08);
+    border: 1px solid rgba(255,70,85,0.3);
+    display: none;
+    touch-action: none;
+  }
+  #aim-stick.visible { display: block; }
+  #aim-stick-thumb {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 52px; height: 52px;
+    margin: -26px 0 0 -26px;
+    border-radius: 50%;
+    background: rgba(255,70,85,0.4);
+    border: 1px solid var(--impact);
+    transition: background 0.1s ease;
+  }
+  #aim-stick.firing #aim-stick-thumb { background: rgba(255,70,85,0.8); }
+
+  /* ---- Floating loot popup ---- */
+  .loot-popup {
+    position: fixed;
+    z-index: 30;
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: var(--warning);
+    text-shadow: 0 0 8px rgba(0,0,0,0.8);
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .loot-popup { animation: lootFloat 1.4s ease-out forwards; }
+  }
+  @keyframes lootFloat {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+    15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -130%) scale(1); }
+  }
+
+  /* ---- Chest loot modal — opening a chest shows everything in it; items
+     are taken one at a time by hand, not auto-applied ---- */
+  #chest-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(10,11,16,0.7);
+    backdrop-filter: blur(3px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  #chest-modal-overlay.visible { display: flex; }
+  #chest-modal {
+    width: 100%;
+    max-width: 360px;
+    background: var(--blackout-2);
+    border: 1px solid rgba(244,196,48,0.4);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+  }
+  #chest-modal-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 2px;
+    color: var(--warning);
+    text-align: center;
+    margin: 0;
+  }
+  #chest-modal-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 20px;
+  }
+  #chest-modal-empty {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    text-align: center;
+    padding: 12px 0;
+  }
+  .chest-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(238,241,246,0.05);
+    border: 1px solid rgba(238,241,246,0.15);
+    border-radius: 4px;
+  }
+  .chest-item-icon { font-size: 20px; width: 26px; text-align: center; flex-shrink: 0; }
+  .chest-item-label {
+    flex: 1;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--paper);
+  }
+  .chest-item-take {
+    padding: 8px 14px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--blackout);
+    background: var(--cover);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: transform 0.08s ease, box-shadow 0.15s ease;
+    flex-shrink: 0;
+  }
+  .chest-item-take:hover { box-shadow: 0 0 12px rgba(45,212,191,0.5); }
+  .chest-item-take:active { transform: scale(0.94); }
+  #chest-modal-close {
+    width: 100%;
+    padding: 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    background: transparent;
+    border: 1px solid rgba(238,241,246,0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  #chest-modal-close:hover { color: var(--paper); border-color: rgba(238,241,246,0.8); }
+
+  /* ---- Ephemeral toast messages (inventory full, etc.) ---- */
+  #toast-container {
+    position: fixed;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 85;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    pointer-events: none;
+  }
+  .toast {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--paper);
+    background: rgba(18,20,28,0.9);
+    border: 1px solid var(--impact);
+    padding: 10px 20px;
+    border-radius: 4px;
+    box-shadow: 0 0 20px rgba(255,70,85,0.35);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .toast { animation: toastFade 1.8s ease-out forwards; }
+  }
+  @keyframes toastFade {
+    0% { opacity: 0; transform: translateY(6px); }
+    15% { opacity: 1; transform: translateY(0); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* ---- Kill feed (top-right, in-game) ---- */
+  #kill-feed {
+    position: fixed;
+    top: calc(var(--stripe-size) + 14px);
+    right: 16px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    max-width: 280px;
+    pointer-events: none;
+  }
+  .kill-entry {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    background: rgba(18,20,28,0.65);
+    backdrop-filter: blur(4px);
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid rgba(238,241,246,0.12);
+    white-space: nowrap;
+    color: var(--paper);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .kill-entry { animation: killFeedIn 0.25s ease-out; }
+  }
+  @keyframes killFeedIn {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .kill-entry .weapon-icon { margin: 0 6px; color: var(--smoke); }
+
+  /* ---- Round-over results screen ---- */
+  #round-over-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 95;
+    background: rgba(10,11,16,0.85);
+    backdrop-filter: blur(6px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  #round-over-overlay.visible { display: flex; }
+  #round-over-card {
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  #round-over-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 48px;
+    letter-spacing: 3px;
+    color: var(--warning);
+    text-shadow: 0 0 24px rgba(244,196,48,0.5);
+    margin: 0;
+  }
+  #round-over-reason {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    margin: -12px 0 0;
+  }
+  #round-over-scores {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .score-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(238,241,246,0.05);
+    border: 1px solid rgba(238,241,246,0.15);
+    border-radius: 4px;
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+  }
+  .score-row.first-place { border-color: var(--warning); background: rgba(244,196,48,0.08); }
+  .score-row .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .score-row .name { flex: 1; text-align: left; color: var(--paper); }
+  .score-row .kd { color: var(--smoke); letter-spacing: 1px; }
+  #round-over-next {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+  }
+
+  /* ---- Damage vignette flash + low-health pulse (in-game only) ---- */
+  #damage-vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 0 rgba(255,70,85,0);
+  }
+  #damage-vignette.flash {
+    box-shadow: inset 0 0 140px 20px rgba(255,70,85,0.55);
+    transition: box-shadow 0.05s ease;
+  }
+  #low-health-pulse {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    pointer-events: none;
+    box-shadow: inset 0 0 110px 10px rgba(255,70,85,0.4);
+    opacity: 0;
+  }
+  #low-health-pulse.visible {
+    opacity: 1;
+    animation: lowHealthPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes lowHealthPulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+  }
+
+  /* ---- Ammo readout (bottom-right, above the health/stamina bars) ---- */
+  #ammo-readout {
+    position: fixed;
+    right: 16px;
+    bottom: calc(var(--stripe-size) + 80px);
+    z-index: 20;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 30px;
+    letter-spacing: 2px;
+    color: var(--paper);
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    text-align: right;
+    width: 180px;
+  }
+  #ammo-readout span { color: var(--warning); }
+  #ammo-readout.empty span { color: var(--impact); }
+  @media (pointer: coarse) {
+    /* That corner of the screen is already busy with the aim-stick and
+       action buttons on touch — the ammo badge on the inventory slot
+       itself is enough there. */
+    #ammo-readout { display: none !important; }
+  }
+
+  /* ---- Respawn overlay ---- */
+  #respawn-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: rgba(10,11,16,0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+  #respawn-overlay.visible { display: flex; }
+  #respawn-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 44px;
+    letter-spacing: 3px;
+    color: var(--impact);
+    text-shadow: 0 0 20px rgba(255,70,85,0.6);
+  }
+  #respawn-sub {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--smoke);
+  }
+  #respawn-sub span { color: var(--paper); }
+
+  /* ---- Menu screen ---- */
+  #menu-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: calc(var(--stripe-size) + 24px) 24px;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+
+  #title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(56px, 12vw, 120px);
+    letter-spacing: 4px;
+    line-height: 0.95;
+    margin: 0;
+    color: var(--paper);
+    text-shadow: 0 0 8px var(--warning), 0 0 24px var(--impact);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #title { animation: signFlicker 2.4s ease-out 1; }
+  }
+  @keyframes signFlicker {
+    0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+      opacity: 1;
+      text-shadow: 0 0 8px var(--warning), 0 0 24px var(--impact);
+    }
+    20%, 22%, 24%, 55% { opacity: 0.3; text-shadow: none; }
+  }
+
+  #title .fire { color: var(--impact); }
+
+  #tagline {
+    font-family: 'Space Mono', monospace;
+    font-size: clamp(12px, 2vw, 15px);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    margin: 10px 0 40px;
+  }
+
+  #auth-row, #hub-row, #shop-screen, #room-screen, #party-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    max-width: 340px;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+
+  #auth-username, #auth-password {
+    width: 100%;
+    background: rgba(238,241,246,0.06);
+    border: 1px solid rgba(238,241,246,0.25);
+    border-radius: 4px;
+    padding: 14px 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: var(--paper);
+    text-align: center;
+    touch-action: manipulation;
+  }
+  #auth-username::placeholder, #auth-password::placeholder { color: var(--smoke); }
+  #auth-username:hover, #auth-password:hover {
+    border-color: rgba(238,241,246,0.6);
+  }
+  #auth-username:focus, #auth-password:focus {
+    outline: none;
+    border-color: var(--cover);
+  }
+
+  #auth-error {
+    margin: 0;
+    min-height: 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--impact);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  #welcome-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: var(--cover);
+    text-transform: uppercase;
+    margin: 0 0 4px;
+  }
+
+  button.secondary {
+    width: 100%;
+    padding: 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--smoke);
+    background: transparent;
+    border: 1px solid rgba(238,241,246,0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  button.secondary:hover {
+    color: var(--paper);
+    border-color: rgba(238,241,246,0.8);
+    box-shadow: 0 0 12px rgba(238,241,246,0.25);
+  }
+
+  #play-btn, #login-btn, #host-btn, #resume-btn, #ready-btn {
+    width: 100%;
+    padding: 18px 32px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    letter-spacing: 3px;
+    color: var(--blackout);
+    background: var(--impact);
+    border: none;
+    border-bottom: 5px solid #c22636;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: transform 0.08s ease, box-shadow 0.15s ease;
+    box-shadow: 0 0 24px rgba(255,70,85,0.35);
+  }
+  #play-btn:hover, #login-btn:hover, #host-btn:hover, #resume-btn:hover, #ready-btn:hover { box-shadow: 0 0 32px rgba(255,70,85,0.55); }
+  #play-btn:active, #login-btn:active, #host-btn:active, #resume-btn:active, #ready-btn:active {
+    transform: translateY(3px);
+    border-bottom-width: 2px;
+    box-shadow: 0 0 12px rgba(255,70,85,0.4) inset;
+  }
+
+  /* ---- Shop / color customization ---- */
+  .panel-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 2px;
+    color: var(--smoke);
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  #shop-preview {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    border: 2px dashed rgba(238,241,246,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 8px 0;
+  }
+  #shop-preview-dot {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--impact);
+    box-shadow: 0 0 24px rgba(255,255,255,0.25);
+    transition: background 0.25s ease;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #shop-preview-dot { animation: previewPulse 2.2s ease-in-out infinite; }
+  }
+  @keyframes previewPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+  }
+
+  #swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    width: 100%;
+  }
+  .swatch {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 3px solid rgba(238,241,246,0.15);
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    padding: 0;
+    opacity: 0;
+    animation: swatchPop 0.35s ease forwards;
+  }
+  .swatch:nth-child(1) { animation-delay: 0.02s; }
+  .swatch:nth-child(2) { animation-delay: 0.07s; }
+  .swatch:nth-child(3) { animation-delay: 0.12s; }
+  .swatch:nth-child(4) { animation-delay: 0.17s; }
+  .swatch:nth-child(5) { animation-delay: 0.22s; }
+  .swatch:nth-child(6) { animation-delay: 0.27s; }
+  @keyframes swatchPop {
+    from { opacity: 0; transform: scale(0.4); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .swatch { opacity: 1; animation: none; }
+  }
+  .swatch:hover {
+    transform: scale(1.1);
+    border-color: rgba(238,241,246,0.8);
+  }
+  .swatch.selected {
+    border-color: var(--paper);
+    box-shadow: 0 0 0 3px rgba(238,241,246,0.2), 0 0 18px currentColor;
+    transform: scale(1.12);
+  }
+
+  /* ---- Room screen (host/join) ---- */
+  #room-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    color: var(--smoke);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  #room-divider::before, #room-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(238,241,246,0.15);
+  }
+
+  #room-code-input {
+    width: 100%;
+    background: rgba(238,241,246,0.06);
+    border: 1px solid rgba(238,241,246,0.25);
+    border-radius: 4px;
+    padding: 14px 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 20px;
+    letter-spacing: 6px;
+    color: var(--paper);
+    text-align: center;
+    text-transform: uppercase;
+    touch-action: manipulation;
+  }
+  #room-code-input::placeholder { color: var(--smoke); letter-spacing: 2px; font-size: 13px; }
+  #room-code-input:hover { border-color: rgba(238,241,246,0.6); }
+  #room-code-input:focus { outline: none; border-color: var(--cover); }
+
+  #room-error {
+    margin: 0;
+    min-height: 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--impact);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  #players-hint {
+    margin-top: 28px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--smoke);
+    text-transform: uppercase;
+  }
+
+  /* ---- Game screen ---- */
+  #game-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    /* Transparent so the same ambient grid/blobs behind the menu carry
+       straight through into gameplay — one continuous world, not two
+       disconnected screens. */
+    background: transparent;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  #game-screen.active { display: flex; }
+  #game-screen.visible { opacity: 1; }
+
+  #game {
+    display: block;
+    touch-action: none;
+  }
+  @media (pointer: fine) {
+    #game { cursor: crosshair; }
+  }
+
+  #hud-status {
+    position: fixed;
+    left: 16px;
+    bottom: calc(var(--stripe-size) + 14px);
+    z-index: 20;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: rgba(18,20,28,0.6);
+    backdrop-filter: blur(6px);
+    padding: 8px 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(238,241,246,0.15);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #hud-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--warning);
+    box-shadow: 0 0 6px var(--warning);
+  }
+  #hud-dot.connected { background: var(--cover); box-shadow: 0 0 6px var(--cover); }
+  #hud-dot.disconnected { background: var(--impact); box-shadow: 0 0 6px var(--impact); }
+
+  /* ---- Virtual joystick (touch only) ---- */
+  #joystick {
+    position: fixed;
+    left: 28px;
+    bottom: calc(var(--stripe-size) + 28px);
+    z-index: 25;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: rgba(238,241,246,0.08);
+    border: 1px solid rgba(238,241,246,0.25);
+    display: none;
+    touch-action: none;
+  }
+  #joystick.visible { display: block; }
+  #joystick-thumb {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 52px; height: 52px;
+    margin: -26px 0 0 -26px;
+    border-radius: 50%;
+    background: rgba(244,196,48,0.35);
+    border: 1px solid var(--warning);
+    transition: background 0.1s ease;
+  }
+
+  /* ---- Rotate overlay ---- */
+  #rotate-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: var(--blackout);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 16px;
+  }
+  #rotate-overlay.visible { display: flex; }
+  #rotate-icon {
+    font-size: 48px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #rotate-icon { animation: rotateHint 1.6s ease-in-out infinite; }
+  }
+  @keyframes rotateHint {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(90deg); }
+  }
+  #rotate-overlay p {
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-size: 13px;
+    color: var(--smoke);
+    max-width: 260px;
+  }
+</style>
+</head>
+<body>
+
+  <div id="bg-grid"></div>
+  <div class="blob blob1"></div>
+  <div class="blob blob2"></div>
+  <div class="blob blob3"></div>
+  <div class="hazard-bar top"></div>
+  <div class="hazard-bar bottom"></div>
+
+  <button id="pause-btn" aria-label="Pause" hidden>⏸</button>
+
+  <div id="pause-overlay">
+    <button id="resume-btn">RESUME</button>
+    <button id="pause-settings-btn" class="secondary">SETTINGS</button>
+    <button id="leave-room-btn" class="secondary">LEAVE ROOM</button>
+  </div>
+
+  <div id="settings-overlay">
+    <div id="settings-card">
+      <p class="panel-title">GRAPHICS PRESET</p>
+      <div id="settings-preset-row">
+        <button class="preset-btn" data-preset="low">Low</button>
+        <button class="preset-btn" data-preset="medium">Medium</button>
+        <button class="preset-btn" data-preset="high">High</button>
+        <button class="preset-btn" data-preset="ultra">Ultra</button>
+      </div>
+
+      <div class="settings-row">
+        <label>Shadows <span class="value" id="shadow-value">Medium</span></label>
+        <input type="range" id="shadow-slider" min="0" max="4" step="1" value="2">
+      </div>
+
+      <div class="settings-row">
+        <label>Textures <span class="value" id="texture-value">Medium</span></label>
+        <input type="range" id="texture-slider" min="0" max="3" step="1" value="1">
+      </div>
+
+      <hr class="settings-divider">
+
+      <div class="settings-row">
+        <label>Music Volume <span class="value" id="music-vol-value">35</span></label>
+        <input type="range" id="music-vol-slider" min="0" max="100" step="1" value="35">
+      </div>
+
+      <div class="settings-row">
+        <label>SFX Volume <span class="value" id="sfx-vol-value">60</span></label>
+        <input type="range" id="sfx-vol-slider" min="0" max="100" step="1" value="60">
+      </div>
+
+      <div id="mute-toggle-row">
+        <span>Mute all audio</span>
+        <button id="mute-toggle-btn">OFF</button>
+      </div>
+
+      <button id="settings-close-btn">CLOSE</button>
+    </div>
+  </div>
+
+  <!-- MENU -->
+  <div id="menu-screen">
+    <h1 id="title">FRIENDLY<span class="fire"> FIRE</span></h1>
+    <p id="tagline">we're still friends after this. probably.</p>
+
+    <!-- Shown when no valid session is found -->
+    <div id="auth-row">
+      <input id="auth-username" type="text" placeholder="Callsign" maxlength="20" autocomplete="username">
+      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
+      <p id="auth-error"></p>
+      <button id="signup-btn" class="secondary">CREATE ACCOUNT</button>
+      <button id="login-btn">LOG IN</button>
+    </div>
+
+    <!-- Shown once logged in (or auto-restored from a saved session) -->
+    <div id="hub-row" hidden>
+      <p id="welcome-text"></p>
+      <button id="play-btn">PLAY</button>
+      <button id="shop-btn" class="secondary">SHOP</button>
+      <button id="menu-settings-btn" class="secondary">SETTINGS</button>
+      <button id="logout-btn" class="secondary">Log out</button>
+    </div>
+
+    <!-- Host or join a room -->
+    <div id="room-screen" hidden>
+      <p class="panel-title">HOST OR JOIN</p>
+      <button id="host-btn">HOST ROOM</button>
+      <div id="room-divider">or</div>
+      <input id="room-code-input" type="text" placeholder="Room code" maxlength="5">
+      <button id="join-btn" class="secondary">JOIN ROOM</button>
+      <p id="room-error"></p>
+      <button id="room-back-btn" class="secondary">BACK</button>
+    </div>
+
+    <!-- Party lobby: everyone readies up before the round starts -->
+    <div id="party-screen" hidden>
+      <p class="panel-title">PARTY</p>
+      <div id="party-code-row" title="Click to copy">
+        <span id="party-code-label">Room Code</span>
+        <span id="party-code-value">-----</span>
+      </div>
+      <div id="party-list"></div>
+      <button id="ready-btn">READY UP</button>
+      <button id="party-back-btn" class="secondary">LEAVE</button>
+    </div>
+
+    <!-- Color customization -->
+    <div id="shop-screen" hidden>
+      <p class="panel-title">CHOOSE YOUR COLOR</p>
+      <div id="shop-preview"><div id="shop-preview-dot"></div></div>
+      <div id="swatch-grid"></div>
+      <button id="shop-back-btn" class="secondary">BACK</button>
+    </div>
+
+    <p id="players-hint">2-4 players &middot; free-for-all &middot; more modes coming</p>
+  </div>
+
+  <!-- GAME -->
+  <div id="game-screen">
+    <canvas id="game"></canvas>
+  </div>
+  <canvas id="minimap" width="160" height="120" hidden></canvas>
+  <div id="hud-status"><span id="hud-dot"></span><span id="hud-text">Not connected</span></div>
+
+  <div id="countdown-overlay"><div id="countdown-number">3</div></div>
+
+  <div id="hud-stats" hidden>
+    <div class="stat-bar-track"><div class="stat-bar-fill" id="health-fill"></div></div>
+    <div class="stat-bar-track"><div class="stat-bar-fill" id="stamina-fill"></div></div>
+  </div>
+
+  <div id="ammo-readout" hidden></div>
+  <div id="inventory-bar" hidden></div>
+  <div id="kill-feed"></div>
+  <div id="toast-container"></div>
+
+  <div id="damage-vignette"></div>
+  <div id="low-health-pulse"></div>
+  <div id="respawn-overlay">
+    <div id="respawn-title">DOWNED</div>
+    <div id="respawn-sub">Respawning in <span id="respawn-seconds">3</span>s</div>
+  </div>
+
+  <!-- Chest loot: shows everything inside, taken one item at a time -->
+  <div id="chest-modal-overlay">
+    <div id="chest-modal">
+      <p id="chest-modal-title">CHEST</p>
+      <div id="chest-modal-items"></div>
+      <p id="chest-modal-empty" hidden>Empty.</p>
+      <button id="chest-modal-close" class="secondary">CLOSE</button>
+    </div>
+  </div>
+
+  <!-- Round results -->
+  <div id="round-over-overlay">
+    <div id="round-over-card">
+      <p id="round-over-title">ROUND OVER</p>
+      <p id="round-over-reason"></p>
+      <div id="round-over-scores"></div>
+      <p id="round-over-next">Back to the lobby shortly&hellip;</p>
+    </div>
+  </div>
+
+  <div id="joystick"><div id="joystick-thumb"></div></div>
+  <div id="aim-stick"><div id="aim-stick-thumb"></div></div>
+  <button class="action-btn" id="sprint-btn">SPRINT</button>
+  <button class="action-btn" id="interact-btn">USE</button>
+
+
+  <!-- ROTATE PROMPT -->
+  <div id="rotate-overlay">
+    <div id="rotate-icon">📱</div>
+    <p>Friendly Fire plays best in landscape. Rotate your device to continue.</p>
+  </div>
+
+<!-- Firebase Authentication (compat build - works with plain <script> tags, no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+<script>
+  // ---- Firebase setup ----
+  // Paste your own project's config here (Firebase console -> Project settings
+  // -> General -> "Your apps" -> the </> web app -> SDK setup and config).
+  // These values are meant to be public — they identify your project, they
+  // are not secret keys, so it's fine that they're visible in this file.
+  const firebaseConfig = {
+    apiKey: "AIzaSyBwREIlFzkJHDyEf7A-UPuTENsawjWprYA",
+    authDomain: "friendly-fire-84b32.firebaseapp.com",
+    projectId: "friendly-fire-84b32",
+    storageBucket: "friendly-fire-84b32.firebasestorage.app",
+    messagingSenderId: "839867144699",
+    appId: "1:839867144699:web:34688b9742dc476353535e",
+  };
+  firebase.initializeApp(firebaseConfig);
+  const firebaseAuth = firebase.auth();
+</script>
+
+<script>
+  // =========================================================
+  // Device detection & responsive setup
+  // =========================================================
+  const isTouch = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+
+  // Set once the server tells us in the 'welcome' message — the world is
+  // much bigger than any screen, so there's no "fit it all on screen" scale
+  // factor anymore, just a camera window into it.
+  let WORLD_W = 0;
+  let WORLD_H = 0;
+
+  const menuScreen = document.getElementById('menu-screen');
+  const gameScreen = document.getElementById('game-screen');
+  const rotateOverlay = document.getElementById('rotate-overlay');
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const hudDot = document.getElementById('hud-dot');
+  const hudText = document.getElementById('hud-text');
+  const joystick = document.getElementById('joystick');
+  const joystickThumb = document.getElementById('joystick-thumb');
+  const aimStick = document.getElementById('aim-stick');
+  const aimStickThumb = document.getElementById('aim-stick-thumb');
+  const damageVignette = document.getElementById('damage-vignette');
+  const lowHealthPulse = document.getElementById('low-health-pulse');
+  const respawnOverlay = document.getElementById('respawn-overlay');
+  const respawnSeconds = document.getElementById('respawn-seconds');
+  const chestModalOverlay = document.getElementById('chest-modal-overlay');
+  const chestModalItems = document.getElementById('chest-modal-items');
+  const chestModalEmpty = document.getElementById('chest-modal-empty');
+  const chestModalClose = document.getElementById('chest-modal-close');
+  const toastContainer = document.getElementById('toast-container');
+  const ammoReadout = document.getElementById('ammo-readout');
+  const roundOverOverlay = document.getElementById('round-over-overlay');
+  const roundOverReason = document.getElementById('round-over-reason');
+  const roundOverScores = document.getElementById('round-over-scores');
+
+  if (isTouch) { joystick.classList.add('visible'); aimStick.classList.add('visible'); }
+  killFeedEl = document.getElementById('kill-feed');
+
+  function isPortrait() {
+    return window.innerHeight > window.innerWidth;
+  }
+
+  function updateOrientationGate() {
+    if (isTouch && isPortrait()) {
+      rotateOverlay.classList.add('visible');
+    } else {
+      rotateOverlay.classList.remove('visible');
+    }
+  }
+
+  // Canvas now simply fills the viewport — the camera transform (in the
+  // render loop) is what decides which part of the big world you're seeing.
+  let viewportW = window.innerWidth;
+  let viewportH = window.innerHeight;
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    viewportW = window.innerWidth;
+    viewportH = window.innerHeight;
+    canvas.style.width = viewportW + 'px';
+    canvas.style.height = viewportH + 'px';
+    canvas.width = Math.floor(viewportW * dpr);
+    canvas.height = Math.floor(viewportH * dpr);
+  }
+
+  window.addEventListener('resize', () => { resizeCanvas(); updateOrientationGate(); });
+  window.addEventListener('orientationchange', () => { resizeCanvas(); updateOrientationGate(); });
+  updateOrientationGate();
+  resizeCanvas();
+
+  // =========================================================
+  // Audio: your own bgm.mp3 (looping background music) and
+  // click.mp3 (played on menu button presses). Volume + mute now live
+  // in the Settings panel instead of a floating icon.
+  // =========================================================
+  let musicVolume = parseInt(localStorage.getItem('ff_musicVolume') ?? '35', 10);
+  let sfxVolume = parseInt(localStorage.getItem('ff_sfxVolume') ?? '60', 10);
+  let audioMuted = localStorage.getItem('ff_audioMuted') === 'true';
+
+  const bgMusic = new Audio('audio/bgm.mp3');
+  bgMusic.loop = true;
+
+  const clickSound = new Audio('audio/click.mp3');
+
+  function applyAudioLevels() {
+    bgMusic.volume = audioMuted ? 0 : musicVolume / 100;
+    clickSound.volume = audioMuted ? 0 : sfxVolume / 100;
+  }
+  applyAudioLevels();
+
+  function playClick() {
+    if (audioMuted || sfxVolume === 0) return;
+    // Clone so rapid clicks can overlap instead of cutting each other off.
+    const sfx = clickSound.cloneNode();
+    sfx.volume = clickSound.volume;
+    sfx.play().catch(() => {});
+  }
+
+  let musicStarted = false;
+  function startMusicIfNeeded() {
+    if (musicStarted) return;
+    musicStarted = true;
+    bgMusic.play().catch(() => {});
+    ensureAudioCtx(); // same first gesture also unlocks/resumes the Web Audio SFX context
+  }
+
+  // Browsers block audio until a user gesture — first tap/click anywhere starts it.
+  ['pointerdown', 'keydown'].forEach((evt) => {
+    window.addEventListener(evt, startMusicIfNeeded, { once: true });
+  });
+
+  // Every button click in the menu gets the same little confirmation sound.
+  document.querySelectorAll('#menu-screen button, #settings-card button, #pause-overlay button').forEach((btn) => {
+    btn.addEventListener('click', playClick);
+  });
+
+  // ---- Procedural SFX (no extra files needed) for countdown ticks and
+  // chest-opening, using a couple of quick oscillator beeps — plus real
+  // weapon fire sound effects (decoded once, played many times cheaply)
+  // further down ----
+  let sfxAudioCtx = null;
+  function ensureAudioCtx() {
+    if (!sfxAudioCtx) {
+      try { sfxAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { return null; }
+    }
+    if (sfxAudioCtx.state === 'suspended') sfxAudioCtx.resume().catch(() => {});
+    return sfxAudioCtx;
+  }
+
+  function playBeep(freq, duration, gainScale) {
+    if (audioMuted || sfxVolume === 0) return;
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const vol = (sfxVolume / 100) * gainScale;
+      gain.gain.setValueAtTime(vol, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) { /* audio not available — silently skip */ }
+  }
+  function playCountdownTick() { playBeep(440, 0.15, 0.3); }
+  function playCountdownGo() { playBeep(880, 0.35, 0.35); }
+  function playChestOpenSound() { playBeep(300, 0.08, 0.25); setTimeout(() => playBeep(500, 0.15, 0.25), 90); }
+
+  // ---- Weapon fire sound effects ----
+  // These are real recorded clips, and several of them run considerably
+  // longer than their weapon's fire rate (the SMG fires every 90ms but its
+  // clip is ~1.7s) — so naively playing a fresh copy on every shot would
+  // pile up dozens of overlapping tails into a muddy wall of noise during
+  // sustained fire. Instead, each *shooter's* copy of each weapon gets at
+  // most one active voice: a new shot from that same player+weapon fades
+  // the previous instance out quickly (~50ms) rather than layering on top
+  // of it, while a lone shot with nothing following it still rings out in
+  // full. Different players (or the same player's other weapon) get their
+  // own independent voice and can freely overlap — that's just a firefight.
+  const WEAPON_SFX_FILES = { pistol: 'pistol-shot.mp3', smg: 'smg-burst.mp3', rifle: 'rifle-shot.mp3', shotgun: 'shotgun-shot.mp3' };
+  const WEAPON_SFX_GAIN = { pistol: 0.85, smg: 0.85, rifle: 0.85, shotgun: 0.85 };
+  const weaponBuffers = {};
+  const weaponSfxVoices = new Map(); // "ownerId::type" -> { source, gain }
+
+  (function loadWeaponSfx() {
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    Object.entries(WEAPON_SFX_FILES).forEach(([type, file]) => {
+      fetch(`audio/${file}`)
+        .then((r) => r.arrayBuffer())
+        .then((buf) => ctx.decodeAudioData(buf))
+        .then((decoded) => { weaponBuffers[type] = decoded; })
+        .catch(() => { /* that weapon just stays silent if it can't load — not fatal */ });
+    });
+  })();
+
+  function playWeaponSfx(ownerId, type) {
+    if (audioMuted || sfxVolume === 0) return;
+    const buffer = weaponBuffers[type];
+    const ctx = sfxAudioCtx; // created by loadWeaponSfx/ensureAudioCtx well before any shot can be fired
+    if (!buffer || !ctx) return; // not decoded yet — skip silently rather than force a fallback beep
+    try {
+      const now = ctx.currentTime;
+      const key = ownerId + '::' + type;
+
+      const prevVoice = weaponSfxVoices.get(key);
+      if (prevVoice) {
+        try {
+          prevVoice.gain.gain.cancelScheduledValues(now);
+          prevVoice.gain.gain.setValueAtTime(prevVoice.gain.gain.value, now);
+          prevVoice.gain.gain.linearRampToValueAtTime(0.0001, now + 0.05);
+          prevVoice.source.stop(now + 0.06);
+        } catch (e) { /* may already have ended on its own — fine either way */ }
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime((sfxVolume / 100) * (WEAPON_SFX_GAIN[type] || 0.85), now);
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.start(now);
+
+      const voice = { source, gain };
+      weaponSfxVoices.set(key, voice);
+      source.onended = () => {
+        try { source.disconnect(); gain.disconnect(); } catch (e) {}
+        if (weaponSfxVoices.get(key) === voice) weaponSfxVoices.delete(key);
+      };
+    } catch (e) { /* audio not available — silently skip */ }
+  }
+
+  // =========================================================
+  // Networking + game state
+  // =========================================================
+  let ws = null;
+  let myId = null;
+  let players = {};
+  let obstacles = [];
+  let houses = [];
+  let rocks = [];
+  let trees = [];
+  let bushes = [];
+  let chests = [];       // static positions from world payload
+  let chestState = [];   // dynamic opened/loot state from each 'state' broadcast
+  let prevChestState = [];
+  let currentRoomCode = null;
+  let lobbyRoster = [];
+
+  // ---- Combat/round state driven by the server ----
+  const bulletRender = new Map(); // id -> {x,y,vx,vy,type,color} — dead-reckoned between state updates
+  let muzzleFlashes = [];         // {x,y,angle,color,expiresAt} — local-only, purely cosmetic
+  let impactSparks = [];          // {x,y,expiresAt} — spawned wherever a bullet disappears
+  let killFeedEl = null;          // assigned once the DOM is ready, below
+  let chestModalIndex = null;     // which chest the loot modal is currently showing, or null
+  let lastKnownHealth = null;     // used to detect "just got hit" for the damage vignette
+  let wasAlive = true;            // used to detect the alive -> dead transition for the respawn overlay
+  let lastRoundEndsAt = 0;
+
+  // ---- Client-side prediction for the local player ----
+  // Waiting for a full server round-trip before you see yourself move feels
+  // laggy, especially over real internet. Instead we move our own circle
+  // immediately based on input, matching the server's own movement rule,
+  // then gently pull toward wherever the server says we actually are (in
+  // case of drift). The server remains the authority; this is just for feel.
+  const BASE_SPEED_PER_SEC = 6 * 30;   // matches server BASE_SPEED
+  const SPRINT_SPEED_PER_SEC = 10 * 30; // matches server SPRINT_SPEED
+  let predictedX = null;
+  let predictedY = null;
+  // The gap between "where I predicted" and "where the server says" is
+  // EXPECTED to be nonzero for the first round-trip after any new key
+  // press — the server hasn't received/processed that input yet. Treating
+  // that expected gap as an error to correct is exactly what caused the
+  // "jump then bounce back" bug. So: ignore small gaps entirely (trust our
+  // own prediction), and only ever correct for a large one (a real desync,
+  // e.g. a collision the server enforced that we didn't predict).
+  const RECONCILE_THRESHOLD = 24; // px
+  const RECONCILE_RATE = 0.15;
+
+  function setHudStatus(state) {
+    hudDot.className = state; // 'connected' | 'disconnected' | ''
+    hudText.textContent = state === 'connected' ? 'Connected'
+      : state === 'disconnected' ? 'Disconnected — retrying'
+      : 'Connecting...';
+  }
+
+  function connect(afterOpen) {
+    predictedX = null;
+    predictedY = null;
+    const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    ws = new WebSocket(protocol + location.host);
+
+    ws.onopen = () => {
+      setHudStatus('connected');
+      if (currentUsername) {
+        ws.send(JSON.stringify({ type: 'auth', name: currentUsername, color: selectedColor }));
+      }
+      if (afterOpen) afterOpen();
+    };
+    ws.onclose = () => setHudStatus('disconnected');
+    ws.onerror = () => setHudStatus('disconnected');
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === 'welcome') {
+        myId = msg.id;
+        WORLD_W = msg.world.w;
+        WORLD_H = msg.world.h;
+        obstacles = msg.world.obstacles || [];
+        houses = msg.world.houses || [];
+        rocks = msg.world.rocks || [];
+        trees = msg.world.trees || [];
+        bushes = msg.world.bushes || [];
+        chests = msg.world.chests || [];
+      }
+
+      if (msg.type === 'roomCreated') {
+        currentRoomCode = msg.code;
+        enterParty();
+      }
+
+      if (msg.type === 'roomJoined') {
+        currentRoomCode = msg.code;
+        if (msg.started) {
+          enterGame(0, true); // round already in progress — skip the lobby and the fake countdown/freeze
+        } else {
+          enterParty();
+        }
+      }
+
+      if (msg.type === 'lobby') {
+        lobbyRoster = msg.players;
+        renderPartyList();
+      }
+
+      if (msg.type === 'gameStart') {
+        enterGame(msg.countdownMs || 3000);
+      }
+
+      if (msg.type === 'roomError') {
+        roomError.textContent = msg.message;
+      }
+
+      if (msg.type === 'chestOpen') {
+        chestModalIndex = msg.chestIndex;
+        openChestModal();
+      }
+
+      if (msg.type === 'chestEmpty') {
+        showToast('Nothing here...');
+      }
+
+      if (msg.type === 'actionFailed') {
+        showToast(msg.reason || 'Failed');
+      }
+
+      if (msg.type === 'kill') {
+        pushKillFeed(msg);
+      }
+
+      if (msg.type === 'roundOver') {
+        showRoundOver(msg.scores || [], msg.reason);
+      }
+
+      if (msg.type === 'returnToLobby') {
+        returnToPartyScreen();
+      }
+
+      if (msg.type === 'state') {
+        players = msg.players;
+        prevChestState = chestState;
+        chestState = msg.chests || [];
+        lastRoundEndsAt = msg.roundEndsAt || 0;
+        detectChestChanges();
+        syncBullets(msg.bullets || []);
+        if (chestModalIndex !== null) renderChestModal(); // keep it live if someone else loots from it too
+
+        const me = players[myId];
+        if (me) {
+          const justRevived = !wasAlive && me.alive;
+          if (predictedX === null || justRevived) {
+            // First update we've seen for ourselves, or we just respawned
+            // somewhere new — snap exactly rather than gently sliding the
+            // camera across the whole map from where we died.
+            predictedX = me.x;
+            predictedY = me.y;
+          } else {
+            const dx = me.x - predictedX;
+            const dy = me.y - predictedY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > RECONCILE_THRESHOLD) {
+              // Only a real desync gets corrected, and still gently — never
+              // a snap, so even this case doesn't look like a "bounce."
+              predictedX += dx * RECONCILE_RATE;
+              predictedY += dy * RECONCILE_RATE;
+            }
+          }
+
+          if (lastKnownHealth !== null && me.health < lastKnownHealth) flashDamageVignette();
+          lastKnownHealth = me.health;
+
+          if (wasAlive && !me.alive) showRespawnOverlay(me.respawnAt);
+          if (justRevived) hideRespawnOverlay();
+          wasAlive = me.alive;
+
+          lowHealthPulse.classList.toggle('visible', me.alive && me.health > 0 && me.health <= me.maxHealth * 0.25);
+        }
+      }
+    };
+  }
+
+  // ---- Bullets: server sends authoritative positions ~30x/sec; we advance
+  // them locally every animation frame (same dead-reckoning idea as player
+  // prediction) so fast-moving tracers don't look steppy between updates ----
+  function syncBullets(list) {
+    const seen = new Set();
+    // A shotgun blast arrives as several pellets (separate bullet ids) in
+    // the very same state broadcast — collapse those into one sound trigger
+    // per shooter+weapon rather than firing the clip six times at once.
+    const newShots = [];
+    list.forEach((b) => {
+      seen.add(b.id);
+      const existing = bulletRender.get(b.id);
+      if (existing) {
+        existing.x = b.x; existing.y = b.y; existing.vx = b.vx; existing.vy = b.vy;
+      } else {
+        bulletRender.set(b.id, { x: b.x, y: b.y, vx: b.vx, vy: b.vy, type: b.type, color: b.color });
+        spawnMuzzleFlash(b.x, b.y, Math.atan2(b.vy, b.vx), b.color);
+        if (!newShots.some((s) => s.ownerId === b.ownerId && s.type === b.type)) {
+          newShots.push({ ownerId: b.ownerId, type: b.type });
+        }
+      }
+    });
+    for (const [id, b] of bulletRender) {
+      if (!seen.has(id)) {
+        spawnImpactSpark(b.x, b.y);
+        bulletRender.delete(id);
+      }
+    }
+    newShots.forEach((s) => playWeaponSfx(s.ownerId, s.type));
+  }
+
+  function advanceBullets(dt) {
+    for (const b of bulletRender.values()) {
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+    }
+  }
+
+  function spawnMuzzleFlash(x, y, angle, color) {
+    muzzleFlashes.push({ x, y, angle, color, expiresAt: performance.now() + 90 });
+  }
+  function spawnImpactSpark(x, y) {
+    impactSparks.push({ x, y, expiresAt: performance.now() + 220 });
+  }
+  function pruneEffects() {
+    const now = performance.now();
+    if (muzzleFlashes.length) muzzleFlashes = muzzleFlashes.filter((f) => f.expiresAt > now);
+    if (impactSparks.length) impactSparks = impactSparks.filter((s) => s.expiresAt > now);
+  }
+
+  // =========================================================
+  // Input: keyboard + mouse (desktop), dual virtual sticks (touch)
+  // =========================================================
+  // Movement and aim are two completely independent pieces of state now —
+  // WASD/left-stick decide where you walk, the mouse/right-stick decide
+  // which way you (and your gun) face, exactly like a twin-stick shooter.
+  // This is also the fix for the old "switch direction and it jitters" bug:
+  // facing used to be *guessed* from tiny frame-to-frame position deltas,
+  // which is noisy (a reconciliation nudge in a slightly wrong direction
+  // would flip it) and breaks down right at direction changes. Now facing
+  // is just a number the player controls directly and the server echoes
+  // back verbatim — nothing to derive, nothing to misfire.
+  const keys = { up: false, down: false, left: false, right: false, sprint: false };
+  let myAimAngle = 0;
+  let firing = false;
+  let lastSentKeys = null;
+  let lastSentAim = null;
+  const INTERACT_RANGE_CLIENT = 44; // mirrors server INTERACT_RANGE, for chest-click hit testing only
+  const CHEST_CLICK_RADIUS = 26;
+
+  function angleDiff(a, b) {
+    let d = a - b;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  function sendInput() {
+    // Only actually send when something changed. A dragging joystick (or a
+    // mouse just sitting still) fires many events per second — sending on
+    // every one of those wastes bandwidth and can make a slow connection
+    // feel worse, not better.
+    const snapshot = keys.up + ',' + keys.down + ',' + keys.left + ',' + keys.right + ',' + keys.sprint;
+    const aimChanged = lastSentAim === null || Math.abs(angleDiff(myAimAngle, lastSentAim)) > 0.02;
+    if (snapshot === lastSentKeys && !aimChanged) return;
+    lastSentKeys = snapshot;
+    lastSentAim = myAimAngle;
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', keys, aimAngle: myAimAngle }));
+    }
+  }
+
+  function sendInteract() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'interact' }));
+  }
+  function sendOpenChest(chestIndex) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'openChest', chestIndex }));
+  }
+  function sendLootTake(chestIndex, slot) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lootTake', chestIndex, slot }));
+  }
+  function sendDropItem(slot) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'dropItem', slot }));
+  }
+  function sendUseItem(slot) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'useItem', slot }));
+  }
+  function sendShoot() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'shoot', angle: myAimAngle }));
+  }
+
+  // Client-side mirror of each weapon's fire rate, used only to throttle
+  // how often we ASK to fire — the server re-validates ammo/cooldown itself
+  // and is the only thing that actually spawns a bullet.
+  const WEAPON_FIRE_RATE = { pistol: 260, smg: 90, rifle: 230, shotgun: 750 };
+  let lastLocalShotAt = {};
+
+  function attemptLocalFire(nowMs) {
+    if (!firing) return;
+    const me = players[myId];
+    if (!me || !me.alive) return;
+    const item = me.inventory[me.equipped];
+    if (!item) return;
+    const rate = WEAPON_FIRE_RATE[item.type];
+    if (rate === undefined) return; // equipped slot isn't a weapon
+    const last = lastLocalShotAt[item.type] || 0;
+    if (nowMs - last < rate) return;
+    lastLocalShotAt[item.type] = nowMs;
+    sendShoot();
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (setKey(e.code, true)) sendInput();
+    if (e.code === 'KeyE' && !e.repeat) sendInteract();
+    if (e.code >= 'Digit1' && e.code <= 'Digit9') sendEquip(parseInt(e.code.slice(-1), 10) - 1);
+  });
+  window.addEventListener('keyup', (e) => { if (setKey(e.code, false)) sendInput(); });
+
+  function setKey(code, value) {
+    switch (code) {
+      case 'KeyW': case 'ArrowUp': keys.up = value; return true;
+      case 'KeyS': case 'ArrowDown': keys.down = value; return true;
+      case 'KeyA': case 'ArrowLeft': keys.left = value; return true;
+      case 'KeyD': case 'ArrowRight': keys.right = value; return true;
+      case 'ShiftLeft': case 'ShiftRight': keys.sprint = value; return true;
+      default: return false;
+    }
+  }
+
+  function sendEquip(index) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'equip', index }));
+    }
+  }
+
+  // ---- Mouse aim + fire (desktop) ----
+  function updateAimFromMouse(clientX, clientY) {
+    const worldX = clientX + lastCamX;
+    const worldY = clientY + lastCamY;
+    const me = players[myId];
+    const originX = (predictedX !== null) ? predictedX : (me ? me.x : worldX);
+    const originY = (predictedY !== null) ? predictedY : (me ? me.y : worldY);
+    myAimAngle = Math.atan2(worldY - originY, worldX - originX);
+  }
+
+  function findChestNear(worldX, worldY, playerX, playerY) {
+    let best = -1, bestDist = CHEST_CLICK_RADIUS;
+    chests.forEach((c, idx) => {
+      const dx = worldX - c.x, dy = worldY - c.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= bestDist) return;
+      const pdx = playerX - c.x, pdy = playerY - c.y;
+      if (Math.sqrt(pdx * pdx + pdy * pdy) <= INTERACT_RANGE_CLIENT) { bestDist = dist; best = idx; }
+    });
+    return best;
+  }
+
+  window.addEventListener('mousemove', (e) => { if (!isTouch) updateAimFromMouse(e.clientX, e.clientY); });
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return; // left click only — right click reserved (see contextmenu below)
+    updateAimFromMouse(e.clientX, e.clientY);
+    const me = players[myId];
+    const originX = (predictedX !== null) ? predictedX : (me ? me.x : 0);
+    const originY = (predictedY !== null) ? predictedY : (me ? me.y : 0);
+    const worldX = e.clientX + lastCamX, worldY = e.clientY + lastCamY;
+
+    // Clicking directly on a chest opens it instead of firing at it.
+    const chestIdx = findChestNear(worldX, worldY, originX, originY);
+    if (chestIdx !== -1) { sendOpenChest(chestIdx); return; }
+
+    firing = true;
+  });
+  window.addEventListener('mouseup', () => { firing = false; });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Mobile sprint/interact buttons — hold-to-sprint, tap-to-interact.
+  const sprintBtn = document.getElementById('sprint-btn');
+  const interactBtn = document.getElementById('interact-btn');
+  if (isTouch) { sprintBtn.classList.add('visible'); interactBtn.classList.add('visible'); }
+  sprintBtn.addEventListener('pointerdown', () => { keys.sprint = true; sendInput(); sprintBtn.classList.add('active-press'); });
+  sprintBtn.addEventListener('pointerup', () => { keys.sprint = false; sendInput(); sprintBtn.classList.remove('active-press'); });
+  sprintBtn.addEventListener('pointerleave', () => { keys.sprint = false; sendInput(); sprintBtn.classList.remove('active-press'); });
+  interactBtn.addEventListener('pointerdown', () => { sendInteract(); interactBtn.classList.add('active-press'); });
+  interactBtn.addEventListener('pointerup', () => interactBtn.classList.remove('active-press'));
+
+  // Virtual joystick (movement): drag within the base, direction maps to
+  // the same up/down/left/right booleans keyboard input uses. Tracks its
+  // own pointerId so a second finger on the aim-stick can't steal its input.
+  let joyActive = false;
+  let joyPointerId = null;
+  let joyCenter = { x: 0, y: 0 };
+  const JOY_RADIUS = 50;
+  const JOY_DEADZONE = 0.35;
+
+  function joyStart(e) {
+    if (joyPointerId !== null) return;
+    joyPointerId = e.pointerId;
+    joyActive = true;
+    const rect = joystick.getBoundingClientRect();
+    joyCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    joyMove(e);
+  }
+  function joyMove(e) {
+    if (!joyActive || e.pointerId !== joyPointerId) return;
+    let dx = e.clientX - joyCenter.x;
+    let dy = e.clientY - joyCenter.y;
+    const dist = Math.min(Math.sqrt(dx * dx + dy * dy), JOY_RADIUS);
+    const angle = Math.atan2(dy, dx);
+    const nx = Math.cos(angle) * dist;
+    const ny = Math.sin(angle) * dist;
+    joystickThumb.style.transform = `translate(${nx}px, ${ny}px)`;
+
+    const normX = nx / JOY_RADIUS;
+    const normY = ny / JOY_RADIUS;
+    keys.left = normX < -JOY_DEADZONE;
+    keys.right = normX > JOY_DEADZONE;
+    keys.up = normY < -JOY_DEADZONE;
+    keys.down = normY > JOY_DEADZONE;
+    sendInput();
+  }
+  function joyEnd(e) {
+    if (e.pointerId !== joyPointerId) return;
+    joyPointerId = null;
+    joyActive = false;
+    joystickThumb.style.transform = 'translate(0, 0)';
+    keys.up = keys.down = keys.left = keys.right = false;
+    sendInput();
+  }
+
+  joystick.addEventListener('pointerdown', joyStart);
+  window.addEventListener('pointermove', joyMove);
+  window.addEventListener('pointerup', joyEnd);
+  window.addEventListener('pointercancel', joyEnd);
+
+  // Virtual stick (aim + fire): a second, independent stick on the other
+  // side of the screen — drag to aim, hold to keep firing, exactly like the
+  // right stick of a gamepad. Also tracks its own pointerId so it can be
+  // used at the same time as the movement joystick (true dual-stick).
+  let aimActive = false;
+  let aimPointerId = null;
+  let aimCenter = { x: 0, y: 0 };
+  const AIM_RADIUS = 50;
+
+  function aimStart(e) {
+    if (aimPointerId !== null) return;
+    aimPointerId = e.pointerId;
+    aimActive = true;
+    firing = true;
+    aimStick.classList.add('firing');
+    const rect = aimStick.getBoundingClientRect();
+    aimCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    aimMove(e);
+  }
+  function aimMove(e) {
+    if (!aimActive || e.pointerId !== aimPointerId) return;
+    let dx = e.clientX - aimCenter.x;
+    let dy = e.clientY - aimCenter.y;
+    const dist = Math.min(Math.sqrt(dx * dx + dy * dy), AIM_RADIUS);
+    const angle = Math.atan2(dy, dx);
+    aimStickThumb.style.transform = `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`;
+    if (dist > 6) { myAimAngle = angle; sendInput(); } // ignore a barely-nudged stick so it doesn't snap to a stray angle
+  }
+  function aimEnd(e) {
+    if (e.pointerId !== aimPointerId) return;
+    aimPointerId = null;
+    aimActive = false;
+    firing = false;
+    aimStick.classList.remove('firing');
+    aimStickThumb.style.transform = 'translate(0, 0)';
+  }
+
+  aimStick.addEventListener('pointerdown', aimStart);
+  window.addEventListener('pointermove', aimMove);
+  window.addEventListener('pointerup', aimEnd);
+  window.addEventListener('pointercancel', aimEnd);
+
+  // =========================================================
+  // Graphics settings (presets + individual overrides)
+  // =========================================================
+  const SHADOW_TIERS = ['off', 'low', 'medium', 'high', 'ultra'];
+  const TEXTURE_TIERS = ['low', 'medium', 'high', 'ultra'];
+
+  // A preset just sets both individual values at once — it's not a locked
+  // "mode," so moving a slider afterward simply overrides that one value.
+  const GRAPHICS_PRESETS = {
+    low: { shadow: 'off', texture: 'low' },
+    medium: { shadow: 'low', texture: 'medium' },
+    high: { shadow: 'medium', texture: 'high' },
+    ultra: { shadow: 'high', texture: 'ultra' },
+  };
+
+  let shadowQuality = localStorage.getItem('ff_shadowQuality') || 'medium';
+  let textureQuality = localStorage.getItem('ff_textureQuality') || 'medium';
+
+  const settingsOverlay = document.getElementById('settings-overlay');
+  const settingsCloseBtn = document.getElementById('settings-close-btn');
+  const shadowSlider = document.getElementById('shadow-slider');
+  const shadowValueLabel = document.getElementById('shadow-value');
+  const textureSlider = document.getElementById('texture-slider');
+  const textureValueLabel = document.getElementById('texture-value');
+  const presetButtons = document.querySelectorAll('.preset-btn');
+  const musicVolSlider = document.getElementById('music-vol-slider');
+  const musicVolValue = document.getElementById('music-vol-value');
+  const sfxVolSlider = document.getElementById('sfx-vol-slider');
+  const sfxVolValue = document.getElementById('sfx-vol-value');
+  const muteToggleBtn = document.getElementById('mute-toggle-btn');
+  const menuSettingsBtn = document.getElementById('menu-settings-btn');
+  const pauseBtn = document.getElementById('pause-btn');
+  const pauseOverlay = document.getElementById('pause-overlay');
+  const resumeBtn = document.getElementById('resume-btn');
+  const pauseSettingsBtn = document.getElementById('pause-settings-btn');
+  const leaveRoomBtn = document.getElementById('leave-room-btn');
+
+  function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+  function refreshSettingsUI() {
+    shadowSlider.value = SHADOW_TIERS.indexOf(shadowQuality);
+    shadowValueLabel.textContent = capitalize(shadowQuality);
+    textureSlider.value = TEXTURE_TIERS.indexOf(textureQuality);
+    textureValueLabel.textContent = capitalize(textureQuality);
+    presetButtons.forEach((btn) => {
+      const preset = GRAPHICS_PRESETS[btn.dataset.preset];
+      btn.classList.toggle('active', preset.shadow === shadowQuality && preset.texture === textureQuality);
+    });
+    musicVolSlider.value = musicVolume;
+    musicVolValue.textContent = musicVolume;
+    sfxVolSlider.value = sfxVolume;
+    sfxVolValue.textContent = sfxVolume;
+    muteToggleBtn.textContent = audioMuted ? 'ON' : 'OFF';
+    muteToggleBtn.classList.toggle('active', audioMuted);
+  }
+
+  presetButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const preset = GRAPHICS_PRESETS[btn.dataset.preset];
+      shadowQuality = preset.shadow;
+      textureQuality = preset.texture;
+      localStorage.setItem('ff_shadowQuality', shadowQuality);
+      localStorage.setItem('ff_textureQuality', textureQuality);
+      refreshSettingsUI();
+      rebuildGrassPattern();
+    });
+  });
+
+  shadowSlider.addEventListener('input', () => {
+    shadowQuality = SHADOW_TIERS[shadowSlider.value];
+    localStorage.setItem('ff_shadowQuality', shadowQuality);
+    refreshSettingsUI();
+  });
+
+  textureSlider.addEventListener('input', () => {
+    textureQuality = TEXTURE_TIERS[textureSlider.value];
+    localStorage.setItem('ff_textureQuality', textureQuality);
+    refreshSettingsUI();
+    rebuildGrassPattern();
+  });
+
+  musicVolSlider.addEventListener('input', () => {
+    musicVolume = parseInt(musicVolSlider.value, 10);
+    localStorage.setItem('ff_musicVolume', musicVolume);
+    applyAudioLevels();
+    refreshSettingsUI();
+  });
+
+  sfxVolSlider.addEventListener('input', () => {
+    sfxVolume = parseInt(sfxVolSlider.value, 10);
+    localStorage.setItem('ff_sfxVolume', sfxVolume);
+    applyAudioLevels();
+    refreshSettingsUI();
+  });
+
+  muteToggleBtn.addEventListener('click', () => {
+    audioMuted = !audioMuted;
+    localStorage.setItem('ff_audioMuted', audioMuted);
+    applyAudioLevels();
+    refreshSettingsUI();
+  });
+
+  function openSettings() {
+    refreshSettingsUI();
+    settingsOverlay.classList.add('visible');
+  }
+  menuSettingsBtn.addEventListener('click', openSettings);
+  pauseSettingsBtn.addEventListener('click', openSettings);
+  settingsCloseBtn.addEventListener('click', () => settingsOverlay.classList.remove('visible'));
+  refreshSettingsUI();
+
+  // ---- Pause menu (in-game only) ----
+  pauseBtn.addEventListener('click', () => pauseOverlay.classList.toggle('visible'));
+  resumeBtn.addEventListener('click', () => pauseOverlay.classList.remove('visible'));
+  leaveRoomBtn.addEventListener('click', () => {
+    pauseOverlay.classList.remove('visible');
+    leaveGame();
+  });
+
+  // =========================================================
+  // Rendering
+  // =========================================================
+  let lastFrameTime = performance.now();
+
+  // Mirrors the server's own collision check exactly (walls + rocks + trees),
+  // so what you predict locally never disagrees with what the server enforces.
+  function circleHitsSolid(x, y, radius) {
+    for (const o of obstacles) {
+      const closestX = Math.max(o.x, Math.min(x, o.x + o.w));
+      const closestY = Math.max(o.y, Math.min(y, o.y + o.h));
+      const dx = x - closestX, dy = y - closestY;
+      if (dx * dx + dy * dy < radius * radius) return true;
+    }
+    for (const c of rocks) {
+      const dx = x - c.x, dy = y - c.y;
+      if (dx * dx + dy * dy < (radius + c.r) * (radius + c.r)) return true;
+    }
+    for (const t of trees) {
+      const dx = x - t.x, dy = y - t.y;
+      if (dx * dx + dy * dy < (radius + t.r) * (radius + t.r)) return true;
+    }
+    return false;
+  }
+
+  let roundFrozen = true; // true during the pre-round countdown, mirrors the server's own movement freeze
+
+  function updatePrediction(dt) {
+    if (predictedX === null || roundFrozen) return;
+    const me = players[myId];
+    if (me && me.alive === false) return; // downed — server isn't moving us either, don't drift the camera
+
+    // Use the server's own echoed sprinting flag for our speed rather than
+    // re-deriving stamina/hysteresis client-side — one state broadcast of
+    // lag on sprint-speed changing is imperceptible, and it guarantees we
+    // never predict a speed the server wouldn't also arrive at.
+    const speed = (me && me.sprinting) ? SPRINT_SPEED_PER_SEC : BASE_SPEED_PER_SEC;
+
+    let newX = predictedX;
+    if (keys.left) newX -= speed * dt;
+    if (keys.right) newX += speed * dt;
+    newX = Math.max(16, Math.min(WORLD_W - 16, newX));
+    if (!circleHitsSolid(newX, predictedY, 16)) predictedX = newX;
+
+    let newY = predictedY;
+    if (keys.up) newY -= speed * dt;
+    if (keys.down) newY += speed * dt;
+    newY = Math.max(16, Math.min(WORLD_H - 16, newY));
+    if (!circleHitsSolid(predictedX, newY, 16)) predictedY = newY;
+  }
+
+  // ---- Item labels/icons — the one shared lookup used by the inventory
+  // bar, the chest loot modal, and the kill feed ----
+  const ITEM_LABEL = {
+    pistol_ammo: 'Pistol Ammo', shotgun: 'Shotgun', rifle: 'Rifle', smg: 'SMG',
+    health_pack: 'Health Pack', stamina_potion: 'Stamina Potion',
+  };
+  const ITEM_ICON = {
+    pistol: '🔫', shotgun: '💥', rifle: '🎯', smg: '🔧',
+    pistol_ammo: '🧰', health_pack: '🩹', stamina_potion: '⚡',
+  };
+
+  function playPickupSound() { playBeep(600, 0.06, 0.22); setTimeout(() => playBeep(900, 0.08, 0.2), 70); }
+
+  let lastCamX = 0, lastCamY = 0; // updated every frame in draw(), used to place popups correctly
+
+  function createLootPopup(worldX, worldY, lootType) {
+    const el = document.createElement('div');
+    el.className = 'loot-popup';
+    el.textContent = '+ ' + (ITEM_LABEL[lootType] || lootType);
+    el.style.left = (worldX - lastCamX) + 'px';
+    el.style.top = (worldY - lastCamY - 20) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1500);
+    playPickupSound();
+  }
+
+  // A chest now holds several independent item slots, each individually
+  // "taken" — so instead of one pop when the lid opens, we watch for (a)
+  // the lid opening at all (its own sound) and (b) each item disappearing
+  // because someone (maybe not even us) took it (its own popup + sound).
+  function detectChestChanges() {
+    if (!prevChestState.length) return; // first state we've seen — nothing to compare against yet
+    chestState.forEach((c, idx) => {
+      const was = prevChestState[idx];
+      if (!was) return;
+      if (!was.opened && c.opened) playChestOpenSound();
+      (c.items || []).forEach((item, slot) => {
+        const prevItem = was.items ? was.items[slot] : null;
+        if (item && item.taken && prevItem && !prevItem.taken) {
+          const pos = chests[idx];
+          if (pos) createLootPopup(pos.x, pos.y, item.type);
+        }
+      });
+    });
+  }
+
+  function clampCamera(pos, viewport, worldSize) {
+    if (worldSize <= viewport) return (worldSize - viewport) / 2;
+    return Math.max(0, Math.min(pos, worldSize - viewport));
+  }
+
+  // ---- Grass texture (a small repeating tile, quality-dependent detail) ----
+  let grassPattern = null;
+  function rebuildGrassPattern() {
+    const tile = document.createElement('canvas');
+    tile.width = 64;
+    tile.height = 64;
+    const tctx = tile.getContext('2d');
+    tctx.fillStyle = '#2f6b2f';
+    tctx.fillRect(0, 0, 64, 64);
+
+    const detailCounts = { low: 0, medium: 5, high: 12, ultra: 20 };
+    const count = detailCounts[textureQuality] ?? 5;
+    // Seeded-feeling but simple — a fixed pattern is fine, it just needs to
+    // not look like a flat void.
+    let seed = 7;
+    function rand() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+    for (let i = 0; i < count; i++) {
+      const shade = rand() > 0.5 ? '#3a7d3a' : '#295c29';
+      tctx.fillStyle = shade;
+      const bw = 2 + rand() * 3;
+      tctx.fillRect(rand() * 64, rand() * 64, bw, bw);
+    }
+    grassPattern = ctx.createPattern(tile, 'repeat');
+  }
+  rebuildGrassPattern();
+
+  function drawGrass(camX, camY) {
+    ctx.fillStyle = textureQuality === 'low' ? '#2f6b2f' : (grassPattern || '#2f6b2f');
+    ctx.fillRect(camX, camY, viewportW, viewportH);
+  }
+
+  // ---- Shadows (quality-dependent softness/visibility) ----
+  function drawShadow(x, y, rx, ry) {
+    if (shadowQuality === 'off') return;
+    const layers = { low: 1, medium: 1, high: 2, ultra: 3 }[shadowQuality];
+    const baseAlpha = { low: 0.25, medium: 0.3, high: 0.22, ultra: 0.18 }[shadowQuality];
+    for (let i = 0; i < layers; i++) {
+      const spread = 1 + i * 0.6;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx * spread, ry * spread, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,0,0,${baseAlpha / layers})`;
+      ctx.fill();
+    }
+  }
+
+  function drawRocksAndTrees() {
+    rocks.forEach((r) => {
+      drawShadow(r.x, r.y + r.r * 0.5, r.r * 1.1, r.r * 0.4);
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+      ctx.fillStyle = '#7c7f88';
+      ctx.fill();
+      if (textureQuality !== 'low') {
+        ctx.beginPath();
+        ctx.arc(r.x - r.r * 0.25, r.y - r.r * 0.25, r.r * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fill();
+      }
+    });
+    trees.forEach((t) => {
+      drawShadow(t.x, t.y + t.r * 0.6, t.r * 1.6, t.r * 0.6);
+      // trunk
+      ctx.fillStyle = '#5a3d24';
+      ctx.fillRect(t.x - t.r * 0.35, t.y - t.r * 0.3, t.r * 0.7, t.r * 1.1);
+      // canopy (bigger than the actual trunk collision radius)
+      ctx.beginPath();
+      ctx.arc(t.x, t.y - t.r * 0.9, t.r * 2.1, 0, Math.PI * 2);
+      ctx.fillStyle = '#2d6a2d';
+      ctx.fill();
+      if (textureQuality === 'high' || textureQuality === 'ultra') {
+        ctx.beginPath();
+        ctx.arc(t.x - t.r * 0.5, t.y - t.r * 1.3, t.r * 0.9, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fill();
+      }
+    });
+  }
+
+  // Bushes are the one thing that disappears entirely on Low — purely
+  // decorative, so hiding them costs nothing gameplay-wise.
+  function drawBushes() {
+    if (textureQuality === 'low') return;
+    bushes.forEach((b) => {
+      drawShadow(b.x, b.y + b.r * 0.4, b.r * 1.2, b.r * 0.4);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = '#3a6b35';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(b.x - b.r * 0.4, b.y - b.r * 0.3, b.r * 0.6, 0, Math.PI * 2);
+      ctx.fillStyle = '#4a7d42';
+      ctx.fill();
+      if (textureQuality === 'ultra') {
+        ctx.beginPath();
+        ctx.arc(b.x + b.r * 0.3, b.y - b.r * 0.2, b.r * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = '#5c9250';
+        ctx.fill();
+      }
+    });
+  }
+
+  function drawHouseFloors() {
+    houses.forEach((h) => {
+      ctx.fillStyle = h.floorColor || '#8a6d4f';
+      ctx.fillRect(h.x, h.y, h.w, h.h);
+      if (textureQuality === 'high' || textureQuality === 'ultra') {
+        // simple plank lines for a bit of floor texture
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+        ctx.lineWidth = 1;
+        for (let lx = h.x + 20; lx < h.x + h.w; lx += 20) {
+          ctx.beginPath();
+          ctx.moveTo(lx, h.y);
+          ctx.lineTo(lx, h.y + h.h);
+          ctx.stroke();
+        }
+      }
+    });
+  }
+
+  function drawWalls() {
+    obstacles.forEach((o) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(o.x + 3, o.y + 4, o.w, o.h);
+      ctx.fillStyle = '#4a4e5a';
+      ctx.fillRect(o.x, o.y, o.w, o.h);
+    });
+  }
+
+  // Doors swing open as any player gets close, and settle shut again once
+  // everyone's clear — a per-door "open amount" eased toward its target
+  // each frame rather than snapping, so it actually reads as a swing.
+  const doorAnim = new Map(); // door object -> current open amount (0-1)
+
+  function nearestPlayerDist(doorX, doorY) {
+    let best = Infinity;
+    for (const id in players) {
+      const p = players[id];
+      const x = (id === myId && predictedX !== null) ? predictedX : p.x;
+      const y = (id === myId && predictedY !== null) ? predictedY : p.y;
+      const dx = x - doorX, dy = y - doorY;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  function drawDoors(dt) {
+    houses.forEach((h) => {
+      (h.doors || []).forEach((door) => {
+        const cx = door.x + (door.vertical ? 0 : door.w / 2);
+        const cy = door.y + (door.vertical ? door.w / 2 : 0);
+        const dist = nearestPlayerDist(cx, cy);
+        const target = dist < 70 ? 1 : 0;
+        const current = doorAnim.get(door) ?? 0;
+        const next = current + (target - current) * Math.min(1, dt * 6);
+        doorAnim.set(door, next);
+
+        // A door leaf hinged at one end of the gap, swinging open toward
+        // the room interior as `next` goes from 0 (shut, flush with wall)
+        // to 1 (open, perpendicular).
+        const angle = next * (Math.PI / 2);
+        ctx.save();
+        if (door.vertical) {
+          ctx.translate(door.x + 7, door.y);
+          ctx.rotate(angle);
+          ctx.fillStyle = '#3d2b1a';
+          ctx.fillRect(-3, 0, 6, door.w);
+        } else {
+          ctx.translate(door.x, door.y + (h.y < door.y ? 7 : -7));
+          ctx.rotate(-angle);
+          ctx.fillStyle = '#3d2b1a';
+          ctx.fillRect(0, -3, door.w, 6);
+        }
+        ctx.restore();
+      });
+    });
+  }
+
+  // A house's roof is only hidden from ME if I'M the one standing inside it
+  // — everyone else (including other players in there with me) still sees
+  // through it too, since it's their view being computed the same way.
+  function isInsideHouse(h, x, y) {
+    return x > h.x && x < h.x + h.w && y > h.y && y < h.y + h.h;
+  }
+
+  function roomContaining(h, x, y) {
+    return h.rooms.find((r) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h);
+  }
+
+  function drawRoofs(myX, myY) {
+    houses.forEach((h) => {
+      if (!isInsideHouse(h, myX, myY)) {
+        ctx.fillStyle = h.roofColor || '#8b3a3a';
+        ctx.fillRect(h.x, h.y, h.w, h.h);
+        if (textureQuality !== 'low') {
+          ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+          ctx.lineWidth = 2;
+          for (let ly = h.y + 12; ly < h.y + h.h; ly += 16) {
+            ctx.beginPath();
+            ctx.moveTo(h.x, ly);
+            ctx.lineTo(h.x + h.w, ly);
+            ctx.stroke();
+          }
+        }
+        if (h.chimney) {
+          ctx.fillStyle = '#5a4636';
+          ctx.fillRect(h.x + h.w * 0.7, h.y - 10, 18, 24);
+        }
+        if (textureQuality === 'ultra') {
+          ctx.fillStyle = 'rgba(244,196,48,0.5)';
+          ctx.fillRect(h.x + 14, h.y + h.h * 0.4, 10, 10);
+          ctx.fillRect(h.x + h.w - 24, h.y + h.h * 0.4, 10, 10);
+        }
+        return;
+      }
+
+      // I'm inside — no roof, but if there's more than one room, every
+      // room except the one I'm actually standing in gets greyed out, so
+      // it reads as "visible but unclear" rather than fully revealed.
+      if (h.rooms.length > 1) {
+        const myRoom = roomContaining(h, myX, myY);
+        h.rooms.forEach((r) => {
+          if (r === myRoom) return;
+          ctx.fillStyle = 'rgba(20,22,28,0.72)';
+          ctx.fillRect(r.x, r.y, r.w, r.h);
+        });
+      }
+    });
+  }
+
+  // Weapon look: color + simple shape per gun type, oriented by aimAngle.
+  const WEAPON_LOOK = {
+    pistol: { len: 16, w: 5, color: '#3a3d46' },
+    shotgun: { len: 24, w: 7, color: '#5a3d24' },
+    rifle: { len: 28, w: 5, color: '#2f3138' },
+    smg: { len: 18, w: 6, color: '#3d4048' },
+  };
+
+  function drawPlayer(id, p, x, y, dt) {
+    // Facing comes straight from the server's aimAngle now — a value the
+    // player controls directly (mouse position / aim-stick angle), not
+    // something we reverse-engineer from position deltas. The old approach
+    // derived facing from tiny frame-to-frame movement, which is inherently
+    // noisy (any small reconciliation nudge could point the wrong way) and
+    // broke down specifically at the moment you changed direction — exactly
+    // the jitter that was reported. A directly-sent angle has no such noise
+    // to begin with, so there's nothing left to jitter.
+    const facing = typeof p.aimAngle === 'number' ? p.aimAngle : 0;
+    const alive = p.alive !== false;
+
+    ctx.save();
+    if (!alive) ctx.globalAlpha = 0.35; // downed — faded out until they respawn
+
+    drawShadow(x, y + 14, 14, 5);
+
+    // Held weapon, drawn behind the body, oriented toward the aim angle.
+    const equippedItem = p.inventory && p.inventory[p.equipped];
+    const look = equippedItem && WEAPON_LOOK[equippedItem.type];
+    if (look && alive) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(facing);
+      ctx.fillStyle = look.color;
+      ctx.fillRect(10, -look.w / 2, look.len, look.w);
+      ctx.restore();
+    }
+
+    ctx.beginPath();
+    ctx.arc(x, y, 16, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    if (id === myId) {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.name, x, y - 30);
+
+    // Small health bar over everyone but yourself (you already have the
+    // big HUD bar) — quick read on who's low without opening a scoreboard.
+    if (id !== myId && p.maxHealth) {
+      const barW = 34, barH = 4;
+      const pct = Math.max(0, p.health / p.maxHealth);
+      ctx.fillStyle = 'rgba(10,11,16,0.6)';
+      ctx.fillRect(x - barW / 2, y - 24, barW, barH);
+      ctx.fillStyle = pct > 0.5 ? '#2dd4bf' : pct > 0.25 ? '#f4c430' : '#ff4655';
+      ctx.fillRect(x - barW / 2, y - 24, barW * pct, barH);
+    }
+
+    ctx.restore();
+  }
+
+  // ---- Bullets, muzzle flashes, impact sparks ----
+  function drawBullets() {
+    for (const b of bulletRender.values()) {
+      const angle = Math.atan2(b.vy, b.vx);
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(angle);
+      ctx.fillStyle = b.color || '#f4c430';
+      ctx.shadowColor = b.color || '#f4c430';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(-6, -1.5, 12, 3);
+      ctx.restore();
+    }
+    ctx.shadowBlur = 0;
+
+    const now = performance.now();
+    muzzleFlashes.forEach((f) => {
+      const t = 1 - Math.max(0, (f.expiresAt - now) / 90);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      ctx.translate(f.x, f.y);
+      ctx.rotate(f.angle);
+      ctx.fillStyle = '#fff2b8';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(10 + t * 6, -5);
+      ctx.lineTo(14 + t * 8, 0);
+      ctx.lineTo(10 + t * 6, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
+
+    impactSparks.forEach((s) => {
+      const t = 1 - Math.max(0, (s.expiresAt - now) / 220);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      ctx.fillStyle = '#f4c430';
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + t * 2;
+        const r = 3 + t * 10;
+        ctx.fillRect(s.x + Math.cos(a) * r - 1.5, s.y + Math.sin(a) * r - 1.5, 3, 3);
+      }
+      ctx.restore();
+    });
+  }
+
+  // ---- Mini-map ----
+  const minimap = document.getElementById('minimap');
+  const minimapCtx = minimap.getContext('2d');
+
+  function drawMinimap(myX, myY) {
+    if (minimap.hidden) return;
+    const scaleX = minimap.width / WORLD_W;
+    const scaleY = minimap.height / WORLD_H;
+
+    minimapCtx.clearRect(0, 0, minimap.width, minimap.height);
+    minimapCtx.fillStyle = 'rgba(47,107,47,0.9)';
+    minimapCtx.fillRect(0, 0, minimap.width, minimap.height);
+
+    houses.forEach((h) => {
+      minimapCtx.fillStyle = 'rgba(139,58,58,0.9)';
+      minimapCtx.fillRect(h.x * scaleX, h.y * scaleY, Math.max(2, h.w * scaleX), Math.max(2, h.h * scaleY));
+    });
+
+    for (const id in players) {
+      const p = players[id];
+      if (p.alive === false) continue; // downed — don't show a stuck dot
+      const x = (id === myId && predictedX !== null) ? predictedX : p.x;
+      const y = (id === myId && predictedY !== null) ? predictedY : p.y;
+      minimapCtx.beginPath();
+      minimapCtx.arc(x * scaleX, y * scaleY, id === myId ? 3.5 : 2.5, 0, Math.PI * 2);
+      minimapCtx.fillStyle = id === myId ? '#fff' : p.color;
+      minimapCtx.fill();
+    }
+
+    // Camera viewport outline, so you can see how much of the map you're seeing
+    minimapCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+    minimapCtx.lineWidth = 1;
+    const vx = clampCamera(myX - viewportW / 2, viewportW, WORLD_W) * scaleX;
+    const vy = clampCamera(myY - viewportH / 2, viewportH, WORLD_H) * scaleY;
+    minimapCtx.strokeRect(vx, vy, viewportW * scaleX, viewportH * scaleY);
+  }
+
+  function drawChests() {
+    chests.forEach((c, idx) => {
+      const state = chestState[idx];
+      const opened = state ? state.opened : false;
+      const hasLoot = state ? state.items.some((it) => it && !it.taken) : true;
+
+      drawShadow(c.x, c.y + 10, 16, 5);
+
+      ctx.fillStyle = '#5a4020';
+      ctx.fillRect(c.x - 14, c.y - 8, 28, 18);
+      ctx.strokeStyle = '#2e2010';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(c.x - 14, c.y - 8, 28, 18);
+
+      // Lid: shut and flat on top when closed, tilted back on hinges once opened.
+      ctx.save();
+      ctx.translate(c.x, c.y - 8);
+      if (opened) ctx.rotate(-0.9);
+      ctx.fillStyle = opened ? '#7a5a30' : '#6a4a28';
+      ctx.fillRect(-14, -8, 28, 8);
+      ctx.restore();
+
+      if (opened && hasLoot) {
+        ctx.fillStyle = 'rgba(244,196,48,0.4)';
+        ctx.beginPath();
+        ctx.arc(c.x, c.y - 4, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  }
+
+  // ---- HUD: health/stamina bars + inventory, refreshed every frame from
+  // our own authoritative server state ----
+  const healthFill = document.getElementById('health-fill');
+  const staminaFill = document.getElementById('stamina-fill');
+  const WEAPON_TYPES_CLIENT = ['pistol', 'shotgun', 'rifle', 'smg'];
+
+  // Six fixed slots now (slot 0 is always the pistol and can't be dropped).
+  // Clicking a weapon equips it; clicking a consumable uses it immediately
+  // (health packs/stamina potions aren't "held," just spent); every other
+  // slot gets a small drop button to free up space on purpose.
+  function updateHud(me) {
+    if (!me) return;
+    healthFill.style.width = Math.max(0, (me.health / me.maxHealth) * 100) + '%';
+    staminaFill.style.width = Math.max(0, (me.stamina / me.maxStamina) * 100) + '%';
+
+    inventoryBar.innerHTML = '';
+    (me.inventory || []).forEach((item, idx) => {
+      const slot = document.createElement('div');
+      const isWeapon = !!item && WEAPON_TYPES_CLIENT.includes(item.type);
+      slot.className = 'inv-slot'
+        + (!item ? ' empty' : '')
+        + (item && idx === me.equipped ? ' equipped' : '')
+        + (item && !isWeapon ? ' consumable' : '');
+
+      if (item) {
+        slot.textContent = ITEM_ICON[item.type] || '?';
+        if (item.ammo !== undefined) {
+          const badge = document.createElement('span');
+          badge.className = 'ammo-badge';
+          badge.textContent = item.ammo;
+          slot.appendChild(badge);
+        }
+        slot.title = ITEM_LABEL[item.type] || item.type;
+        slot.addEventListener('click', () => { isWeapon ? sendEquip(idx) : sendUseItem(idx); });
+
+        if (idx !== 0) {
+          const dropBtn = document.createElement('span');
+          dropBtn.className = 'slot-drop';
+          dropBtn.textContent = '\u00d7';
+          dropBtn.title = 'Drop';
+          dropBtn.addEventListener('click', (e) => { e.stopPropagation(); sendDropItem(idx); });
+          slot.appendChild(dropBtn);
+        }
+      }
+      inventoryBar.appendChild(slot);
+    });
+
+    const equipped = me.inventory && me.inventory[me.equipped];
+    if (equipped && equipped.ammo !== undefined) {
+      ammoReadout.innerHTML = `${equipped.ammo} <span>${ITEM_ICON[equipped.type] || ''}</span>`;
+      ammoReadout.classList.toggle('empty', equipped.ammo <= 0);
+    } else {
+      ammoReadout.innerHTML = '';
+      ammoReadout.classList.remove('empty');
+    }
+  }
+
+  function draw(now) {
+    const dt = Math.min((now - lastFrameTime) / 1000, 0.1); // clamp for tab-switch pauses
+    lastFrameTime = now;
+    updatePrediction(dt);
+    advanceBullets(dt);
+    pruneEffects();
+    attemptLocalFire(now);
+    sendInput(); // cheap no-op unless aim/keys actually changed since the last send
+
+    const dpr = window.devicePixelRatio || 1;
+    const myX = (predictedX !== null) ? predictedX : (players[myId] ? players[myId].x : WORLD_W / 2);
+    const myY = (predictedY !== null) ? predictedY : (players[myId] ? players[myId].y : WORLD_H / 2);
+    const camX = clampCamera(myX - viewportW / 2, viewportW, WORLD_W);
+    const camY = clampCamera(myY - viewportH / 2, viewportH, WORLD_H);
+    lastCamX = camX;
+    lastCamY = camY;
+
+    // Clear in device-pixel space first, then switch to the camera-mapped
+    // world-space transform for everything below.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, -camX * dpr, -camY * dpr);
+
+    drawGrass(camX, camY);
+    drawHouseFloors();
+    drawWalls();
+    drawDoors(dt);
+    drawChests();
+    drawBushes();
+    drawRocksAndTrees();
+
+    for (const id in players) {
+      const p = players[id];
+      const x = (id === myId && predictedX !== null) ? predictedX : p.x;
+      const y = (id === myId && predictedY !== null) ? predictedY : p.y;
+      drawPlayer(id, p, x, y, dt);
+    }
+    drawBullets();
+
+    drawRoofs(myX, myY);
+    drawMinimap(myX, myY);
+    updateHud(players[myId]);
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  // =========================================================
+  // Account system: Firebase Authentication
+  // =========================================================
+  // Firebase handles password storage, hashing, and "remember me on this
+  // device" for us. Firebase's Email/Password sign-in wants an email, so we
+  // turn your callsign into one behind the scenes (you never see it).
+  const authRow = document.getElementById('auth-row');
+  const hubRow = document.getElementById('hub-row');
+  const shopScreen = document.getElementById('shop-screen');
+  const roomScreen = document.getElementById('room-screen');
+  const authUsername = document.getElementById('auth-username');
+  const authPassword = document.getElementById('auth-password');
+  const authError = document.getElementById('auth-error');
+  const loginBtn = document.getElementById('login-btn');
+  const signupBtn = document.getElementById('signup-btn');
+  const welcomeText = document.getElementById('welcome-text');
+  const logoutBtn = document.getElementById('logout-btn');
+  const playBtn = document.getElementById('play-btn');
+  const shopBtn = document.getElementById('shop-btn');
+  const shopBackBtn = document.getElementById('shop-back-btn');
+  const shopPreviewDot = document.getElementById('shop-preview-dot');
+  const swatchGrid = document.getElementById('swatch-grid');
+  const hostBtn = document.getElementById('host-btn');
+  const joinBtn = document.getElementById('join-btn');
+  const roomBackBtn = document.getElementById('room-back-btn');
+  const roomCodeInput = document.getElementById('room-code-input');
+  const roomError = document.getElementById('room-error');
+  const hudStats = document.getElementById('hud-stats');
+  const inventoryBar = document.getElementById('inventory-bar');
+  const partyScreen = document.getElementById('party-screen');
+  const partyList = document.getElementById('party-list');
+  const partyCodeRow = document.getElementById('party-code-row');
+  const partyCodeValue = document.getElementById('party-code-value');
+  const readyBtn = document.getElementById('ready-btn');
+  const partyBackBtn = document.getElementById('party-back-btn');
+
+  let currentUsername = null; // set once Firebase confirms who's signed in
+
+  // ---- Smooth panel transitions ----
+  // Rather than instantly toggling `hidden`, briefly fade+scale the panel
+  // that's leaving, then fade+scale in the one arriving.
+  function switchPanel(hideEl, showEl) {
+    const wasVisible = hideEl && !hideEl.hidden;
+    if (wasVisible) {
+      hideEl.style.opacity = '0';
+      hideEl.style.transform = 'scale(0.96)';
+    }
+    setTimeout(() => {
+      if (hideEl) hideEl.hidden = true;
+      if (showEl) {
+        showEl.hidden = false;
+        showEl.style.opacity = '0';
+        showEl.style.transform = 'scale(0.96)';
+        requestAnimationFrame(() => {
+          showEl.style.opacity = '1';
+          showEl.style.transform = 'scale(1)';
+        });
+      }
+    }, wasVisible ? 180 : 0);
+  }
+
+  // ---- Color customization (Shop) ----
+  // Same palette the server can assign — keeping them identical means
+  // whatever you pick here is guaranteed to be something the server accepts.
+  const COLOR_PALETTE = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c'];
+  let selectedColor = localStorage.getItem('ff_color') || COLOR_PALETTE[0];
+
+  function buildSwatches() {
+    swatchGrid.innerHTML = '';
+    COLOR_PALETTE.forEach((color) => {
+      const btn = document.createElement('button');
+      btn.className = 'swatch' + (color === selectedColor ? ' selected' : '');
+      btn.style.background = color;
+      btn.style.color = color; // used by box-shadow's `currentColor` when selected
+      btn.addEventListener('click', () => selectColor(color));
+      swatchGrid.appendChild(btn);
+    });
+  }
+
+  function selectColor(color) {
+    selectedColor = color;
+    localStorage.setItem('ff_color', color);
+    shopPreviewDot.style.background = color;
+    buildSwatches();
+  }
+
+  shopBtn.addEventListener('click', () => {
+    shopPreviewDot.style.background = selectedColor;
+    buildSwatches();
+    switchPanel(hubRow, shopScreen);
+  });
+
+  shopBackBtn.addEventListener('click', () => {
+    switchPanel(shopScreen, hubRow);
+  });
+
+  // ---- Room system: host a new room (get a code) or join one by code ----
+  playBtn.addEventListener('click', () => {
+    roomError.textContent = '';
+    roomCodeInput.value = '';
+    switchPanel(hubRow, roomScreen);
+  });
+
+  roomBackBtn.addEventListener('click', () => {
+    switchPanel(roomScreen, hubRow);
+  });
+
+  function sendRoomRequest(message) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(message));
+    } else {
+      setHudStatus('connecting');
+      connect(() => ws.send(JSON.stringify(message)));
+    }
+  }
+
+  hostBtn.addEventListener('click', () => {
+    roomError.textContent = '';
+    sendRoomRequest({ type: 'createRoom' });
+  });
+
+  joinBtn.addEventListener('click', () => {
+    const code = roomCodeInput.value.trim().toUpperCase();
+    if (code.length < 4) {
+      roomError.textContent = 'Enter the 5-character room code.';
+      return;
+    }
+    roomError.textContent = '';
+    sendRoomRequest({ type: 'joinRoom', code });
+  });
+  roomCodeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') joinBtn.click();
+  });
+
+  partyCodeRow.addEventListener('click', () => {
+    if (!currentRoomCode) return;
+    navigator.clipboard?.writeText(currentRoomCode).catch(() => {});
+    const original = partyCodeValue.textContent;
+    partyCodeValue.textContent = 'copied!';
+    setTimeout(() => { partyCodeValue.textContent = original; }, 1000);
+  });
+
+  // ---- Party lobby: shown after hosting/joining, before the round starts ----
+  function renderPartyList() {
+    partyList.innerHTML = '';
+    lobbyRoster.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'party-row' + (p.ready ? ' is-ready' : '');
+
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = p.color;
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = p.name + (p.id === myId ? ' (you)' : '');
+
+      const badge = document.createElement('span');
+      badge.className = 'ready-badge';
+      badge.textContent = p.ready ? 'READY' : 'WAITING';
+
+      row.append(dot, name, badge);
+      partyList.appendChild(row);
+    });
+
+    const me = lobbyRoster.find((p) => p.id === myId);
+    const iAmReady = me ? me.ready : false;
+    readyBtn.textContent = iAmReady ? 'WAITING FOR OTHERS...' : 'READY UP';
+    readyBtn.classList.toggle('is-ready', iAmReady);
+    if (currentRoomCode) partyCodeValue.textContent = currentRoomCode;
+  }
+
+  function enterParty() {
+    if (currentRoomCode) partyCodeValue.textContent = currentRoomCode;
+    switchPanel(roomScreen, partyScreen);
+  }
+
+  readyBtn.addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'toggleReady' }));
+    }
+  });
+
+  partyBackBtn.addEventListener('click', () => {
+    leaveGame(); // haven't started yet — same cleanup as leaving mid-game works fine
+  });
+
+  function usernameToFakeEmail(username) {
+    return `${username}@friendlyfire.local`;
+  }
+
+  function showLoggedIn(username) {
+    currentUsername = username;
+    switchPanel(authRow, hubRow);
+    welcomeText.textContent = `Welcome back, ${username}`;
+  }
+
+  function showLoggedOut(message) {
+    currentUsername = null;
+    if (ws) leaveGame(); // if we were mid-lobby/game and log out, tear the connection down too
+    const currentlyVisible = [hubRow, shopScreen, roomScreen, partyScreen].find((el) => !el.hidden);
+    switchPanel(currentlyVisible || authRow, authRow);
+    shopScreen.hidden = true;
+    roomScreen.hidden = true;
+    partyScreen.hidden = true;
+    authPassword.value = '';
+    authError.textContent = message || '';
+  }
+
+  function friendlyAuthError(err) {
+    switch (err.code) {
+      case 'auth/email-already-in-use': return 'That callsign is already taken.';
+      case 'auth/invalid-email': return 'Callsign must be at least 3 characters, letters/numbers only.';
+      case 'auth/weak-password': return 'Password needs to be at least 6 characters.';
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return 'Invalid callsign or password.';
+      default: return 'Something went wrong. Try again.';
+    }
+  }
+
+  async function submitSignup() {
+    authError.textContent = '';
+    const username = authUsername.value.trim().toLowerCase();
+    const password = authPassword.value;
+    try {
+      await firebaseAuth.createUserWithEmailAndPassword(usernameToFakeEmail(username), password);
+      // onAuthStateChanged (below) picks up the new session automatically.
+    } catch (err) {
+      authError.textContent = friendlyAuthError(err);
+    }
+  }
+
+  async function submitLogin() {
+    authError.textContent = '';
+    const username = authUsername.value.trim().toLowerCase();
+    const password = authPassword.value;
+    try {
+      await firebaseAuth.signInWithEmailAndPassword(usernameToFakeEmail(username), password);
+    } catch (err) {
+      authError.textContent = friendlyAuthError(err);
+    }
+  }
+
+  loginBtn.addEventListener('click', submitLogin);
+  signupBtn.addEventListener('click', submitSignup);
+  authPassword.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitLogin();
+  });
+
+  logoutBtn.addEventListener('click', () => firebaseAuth.signOut());
+
+  // Firebase fires this immediately on page load with whatever session it
+  // already has saved on this device — this IS the auto sign-in feature.
+  firebaseAuth.onAuthStateChanged((user) => {
+    if (user && user.email) {
+      const username = user.email.split('@')[0];
+      showLoggedIn(username);
+    } else {
+      showLoggedOut();
+    }
+  });
+
+  // =========================================================
+  // Menu -> Game transition (called once the round actually starts)
+  // =========================================================
+  function stopAllWeaponSfx() {
+    const ctx = sfxAudioCtx;
+    weaponSfxVoices.forEach((voice) => {
+      try {
+        if (ctx) {
+          const now = ctx.currentTime;
+          voice.gain.gain.cancelScheduledValues(now);
+          voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
+          voice.gain.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+          voice.source.stop(now + 0.09);
+        } else {
+          voice.source.stop();
+        }
+      } catch (e) { /* already stopped/ended — fine either way */ }
+    });
+    weaponSfxVoices.clear();
+  }
+
+  function resetPerRoundUIState() {
+    bulletRender.clear();
+    muzzleFlashes = [];
+    impactSparks = [];
+    killFeedEl.innerHTML = '';
+    closeChestModal();
+    roundOverOverlay.classList.remove('visible');
+    damageVignette.classList.remove('flash');
+    lowHealthPulse.classList.remove('visible');
+    respawnOverlay.classList.remove('visible');
+    lastKnownHealth = null;
+    wasAlive = true;
+    stopAllWeaponSfx(); // a shotgun blast ringing on for ~3s shouldn't tail off into the lobby screen
+  }
+
+  function enterGame(countdownMs, alreadyInProgress) {
+    resetPerRoundUIState();
+    roundFrozen = !alreadyInProgress; // a round already in progress has nothing to freeze for
+    predictedX = null; // fresh round = a fresh spawn point, often far from where we were — snap, don't slide there
+    predictedY = null;
+    gameScreen.classList.add('active'); // now display:flex, still opacity:0
+    resizeCanvas();
+    pauseBtn.hidden = false;
+    minimap.hidden = false;
+    hudStats.hidden = false;
+    inventoryBar.hidden = false;
+    ammoReadout.hidden = false;
+
+    requestAnimationFrame(() => {
+      gameScreen.classList.add('visible'); // triggers the fade-in
+      menuScreen.style.opacity = '0';
+      menuScreen.style.transform = 'scale(1.04)';
+    });
+    setTimeout(() => {
+      menuScreen.style.display = 'none';
+    }, 520);
+
+    if (!alreadyInProgress) runCountdown(countdownMs || 3000);
+  }
+
+  // "3... 2... 1... GO!" with a beep on each number. The server enforces
+  // the actual movement freeze independently, timed from the same
+  // countdownMs — this just matches it visually and lifts our own
+  // client-side prediction freeze at the same moment.
+  function runCountdown(totalMs) {
+    const overlay = document.getElementById('countdown-overlay');
+    const numberEl = document.getElementById('countdown-number');
+    const wholeSeconds = Math.round(totalMs / 1000);
+    overlay.classList.add('visible');
+    setTimeout(() => { roundFrozen = false; }, totalMs);
+
+    function showTick(secondsLeft) {
+      if (secondsLeft <= 0) {
+        numberEl.textContent = 'GO!';
+        numberEl.classList.remove('pop'); void numberEl.offsetWidth; numberEl.classList.add('pop');
+        playCountdownGo();
+        setTimeout(() => overlay.classList.remove('visible'), 700);
+        return;
+      }
+      numberEl.textContent = secondsLeft;
+      numberEl.classList.remove('pop'); void numberEl.offsetWidth; numberEl.classList.add('pop');
+      playCountdownTick();
+      setTimeout(() => showTick(secondsLeft - 1), 1000);
+    }
+    showTick(wholeSeconds);
+  }
+
+  // Hides all the in-game HUD chrome, without touching the websocket or
+  // room code — used both when leaving deliberately (pause menu -> leave)
+  // and as the shared groundwork for returning to the lobby after a round.
+  function hideGameChrome() {
+    pauseBtn.hidden = true;
+    minimap.hidden = true;
+    hudStats.hidden = true;
+    inventoryBar.hidden = true;
+    ammoReadout.hidden = true;
+    sprintBtn.classList.remove('visible', 'active-press');
+    interactBtn.classList.remove('visible', 'active-press');
+    aimStick.classList.remove('visible', 'firing');
+    document.getElementById('countdown-overlay').classList.remove('visible');
+    pauseOverlay.classList.remove('visible');
+    gameScreen.classList.remove('active', 'visible');
+    resetPerRoundUIState();
+
+    menuScreen.style.display = 'flex';
+    requestAnimationFrame(() => {
+      menuScreen.style.opacity = '1';
+      menuScreen.style.transform = 'scale(1)';
+    });
+  }
+
+  // Round ended and the server has moved everyone back to the lobby — stay
+  // connected (same room, same friends) and reopen the party screen so
+  // everyone can ready up again instead of having to re-share the code.
+  // The party panel was never actually hidden while the round was running
+  // (enterGame only hides the outer #menu-screen container), so simply
+  // restoring that container brings it right back.
+  function returnToPartyScreen() {
+    hideGameChrome();
+    renderPartyList();
+  }
+
+  // Leaving a room/round — from the party lobby (before start) or the
+  // pause menu (mid-game). Tears the connection down and brings the menu
+  // back to the main hub.
+  function leaveGame() {
+    if (ws) {
+      ws.onclose = null; // don't let the normal auto-disconnect status flash on a deliberate leave
+      ws.close();
+      ws = null;
+    }
+    players = {};
+    lobbyRoster = [];
+    currentRoomCode = null;
+    chestState = [];
+    prevChestState = [];
+
+    hideGameChrome();
+    switchPanel(partyScreen.hidden ? roomScreen : partyScreen, hubRow);
+  }
+
+  // =========================================================
+  // Chest loot modal — opening a chest reveals everything inside; items
+  // are taken one at a time, by hand, into a limited inventory.
+  // =========================================================
+  function openChestModal() {
+    chestModalOverlay.classList.add('visible');
+    renderChestModal();
+  }
+
+  function closeChestModal() {
+    chestModalIndex = null;
+    chestModalOverlay.classList.remove('visible');
+  }
+
+  function renderChestModal() {
+    if (chestModalIndex === null) return;
+    const state = chestState[chestModalIndex];
+    const items = state ? state.items : [];
+    const untaken = [];
+    items.forEach((item, slot) => { if (item && !item.taken) untaken.push({ slot, type: item.type }); });
+
+    chestModalItems.innerHTML = '';
+    chestModalEmpty.hidden = untaken.length > 0;
+
+    untaken.forEach(({ slot, type }) => {
+      const row = document.createElement('div');
+      row.className = 'chest-item-row';
+
+      const icon = document.createElement('span');
+      icon.className = 'chest-item-icon';
+      icon.textContent = ITEM_ICON[type] || '?';
+
+      const label = document.createElement('span');
+      label.className = 'chest-item-label';
+      label.textContent = ITEM_LABEL[type] || type;
+
+      const takeBtn = document.createElement('button');
+      takeBtn.className = 'chest-item-take';
+      takeBtn.textContent = 'TAKE';
+      takeBtn.addEventListener('click', () => sendLootTake(chestModalIndex, slot));
+
+      row.append(icon, label, takeBtn);
+      chestModalItems.appendChild(row);
+    });
+  }
+
+  chestModalClose.addEventListener('click', closeChestModal);
+  chestModalOverlay.addEventListener('click', (e) => { if (e.target === chestModalOverlay) closeChestModal(); });
+
+  // =========================================================
+  // Toasts, kill feed, damage feedback, round results
+  // =========================================================
+  function showToast(text) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    toastContainer.appendChild(el);
+    setTimeout(() => el.remove(), 1800);
+  }
+
+  function pushKillFeed(msg) {
+    const el = document.createElement('div');
+    el.className = 'kill-entry';
+    if (msg.selfKill || !msg.killerName) {
+      el.innerHTML = `<span style="color:${msg.victimColor}">${escapeHtml(msg.victimName)}</span> died`;
+    } else {
+      const icon = ITEM_ICON[msg.weapon] || '⚔️';
+      el.innerHTML = `<span style="color:${msg.killerColor}">${escapeHtml(msg.killerName)}</span>` +
+        `<span class="weapon-icon">${icon}</span>` +
+        `<span style="color:${msg.victimColor}">${escapeHtml(msg.victimName)}</span>`;
+    }
+    killFeedEl.appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+    while (killFeedEl.children.length > 5) killFeedEl.removeChild(killFeedEl.firstChild);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function flashDamageVignette() {
+    damageVignette.classList.remove('flash');
+    void damageVignette.offsetWidth; // restart the CSS transition
+    damageVignette.classList.add('flash');
+    setTimeout(() => damageVignette.classList.remove('flash'), 250);
+  }
+
+  let respawnTickHandle = null;
+  function showRespawnOverlay(respawnAt) {
+    respawnOverlay.classList.add('visible');
+    if (respawnTickHandle) clearInterval(respawnTickHandle);
+    function tick() {
+      const secs = Math.max(0, Math.ceil((respawnAt - Date.now()) / 1000));
+      respawnSeconds.textContent = secs;
+      if (secs <= 0 && respawnTickHandle) { clearInterval(respawnTickHandle); respawnTickHandle = null; }
+    }
+    tick();
+    respawnTickHandle = setInterval(tick, 200);
+  }
+  function hideRespawnOverlay() {
+    respawnOverlay.classList.remove('visible');
+    if (respawnTickHandle) { clearInterval(respawnTickHandle); respawnTickHandle = null; }
+  }
+
+  const ROUND_END_LABEL = { killTarget: 'Kill target reached', timeUp: "Time's up" };
+
+  function showRoundOver(scores, reason) {
+    roundOverReason.textContent = ROUND_END_LABEL[reason] || '';
+    roundOverScores.innerHTML = '';
+    scores.forEach((s, idx) => {
+      const row = document.createElement('div');
+      row.className = 'score-row' + (idx === 0 && s.kills > 0 ? ' first-place' : '');
+
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = s.color;
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = s.name;
+
+      const kd = document.createElement('span');
+      kd.className = 'kd';
+      kd.textContent = `${s.kills}K / ${s.deaths}D`;
+
+      row.append(dot, name, kd);
+      roundOverScores.appendChild(row);
+    });
+    roundOverOverlay.classList.add('visible');
+  }
+</script>
+</body>
+</html>

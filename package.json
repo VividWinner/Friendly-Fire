@@ -1,0 +1,13 @@
+{
+  "name": "friendly-fire",
+  "version": "1.0.0",
+  "description": "Friendly Fire - 2D multiplayer arena shooter",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "express": "^4.21.0"
+  }
+}
