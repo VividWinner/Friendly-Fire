@@ -1445,7 +1445,7 @@
   const roundOverScores = document.getElementById('round-over-scores');
 
   if (isTouch) { joystick.classList.add('visible'); aimStick.classList.add('visible'); }
-  killFeedEl = document.getElementById('kill-feed');
+  let killFeedEl = document.getElementById('kill-feed');
 
   function isPortrait() {
     return window.innerHeight > window.innerWidth;
@@ -1646,7 +1646,6 @@
   const bulletRender = new Map(); // id -> {x,y,vx,vy,type,color} — dead-reckoned between state updates
   let muzzleFlashes = [];         // {x,y,angle,color,expiresAt} — local-only, purely cosmetic
   let impactSparks = [];          // {x,y,expiresAt} — spawned wherever a bullet disappears
-  let killFeedEl = null;          // assigned once the DOM is ready, below
   let chestModalIndex = null;     // which chest the loot modal is currently showing, or null
   let lastKnownHealth = null;     // used to detect "just got hit" for the damage vignette
   let wasAlive = true;            // used to detect the alive -> dead transition for the respawn overlay
