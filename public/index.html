@@ -464,6 +464,18 @@
   .action-btn.active-press { background: rgba(244,196,48,0.35); border-color: var(--warning); }
   #sprint-btn { left: 46px; bottom: calc(var(--stripe-size) + 158px); }
   #interact-btn { right: 46px; bottom: calc(var(--stripe-size) + 158px); }
+  #reload-btn {
+    left: 50%;
+    bottom: calc(var(--stripe-size) + 90px);
+    transform: translateX(-50%);
+    width: 52px;
+    height: 52px;
+    font-size: 9px;
+  }
+  @media (pointer: fine) {
+    /* Desktop has the R key — the on-screen button is touch-only. */
+    #reload-btn { display: none !important; }
+  }
 
   /* ---- Aim / fire joystick (touch only, right side): drag to aim, hold
      to keep firing — the twin-stick-shooter half of the movement joystick ---- */
@@ -783,16 +795,35 @@
     right: 16px;
     bottom: calc(var(--stripe-size) + 80px);
     z-index: 20;
+    text-align: right;
+    width: 180px;
+  }
+  #ammo-readout-text {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 30px;
     letter-spacing: 2px;
     color: var(--paper);
     text-shadow: 0 2px 6px rgba(0,0,0,0.6);
-    text-align: right;
-    width: 180px;
   }
-  #ammo-readout span { color: var(--warning); }
-  #ammo-readout.empty span { color: var(--impact); }
+  #ammo-readout-text .mag { color: var(--warning); }
+  #ammo-readout-text .reserve { color: var(--smoke); font-size: 20px; }
+  #ammo-readout.empty #ammo-readout-text .mag { color: var(--impact); }
+  #ammo-readout.reloading #ammo-readout-text { color: var(--warning); }
+  #reload-progress-track {
+    display: none;
+    width: 100%;
+    height: 5px;
+    margin-top: 6px;
+    background: rgba(238,241,246,0.15);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  #ammo-readout.reloading #reload-progress-track { display: block; }
+  #reload-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--warning);
+  }
   @media (pointer: coarse) {
     /* That corner of the screen is already busy with the aim-stick and
        action buttons on touch — the ammo badge on the inventory slot
@@ -1152,6 +1183,52 @@
   #hud-dot.connected { background: var(--cover); box-shadow: 0 0 6px var(--cover); }
   #hud-dot.disconnected { background: var(--impact); box-shadow: 0 0 6px var(--impact); }
 
+  /* ---- Spectator banner: shown instead of the combat HUD when you join
+     mid-round or reconnect while a round is already underway ---- */
+  #spectate-banner {
+    position: fixed;
+    top: calc(var(--stripe-size) + 14px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    display: none;
+    align-items: center;
+    gap: 14px;
+    background: rgba(18,20,28,0.75);
+    backdrop-filter: blur(6px);
+    padding: 10px 14px;
+    border-radius: 6px;
+    border: 1px solid rgba(238,241,246,0.15);
+  }
+  #spectate-banner.visible { display: flex; }
+  #spectate-labels { text-align: center; min-width: 110px; }
+  #spectate-label {
+    display: block;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--smoke);
+  }
+  #spectate-name {
+    display: block;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px;
+    letter-spacing: 1px;
+    color: var(--warning);
+  }
+  #spectate-prev, #spectate-next {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(238,241,246,0.25);
+    background: rgba(238,241,246,0.08);
+    color: var(--paper);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #spectate-prev:hover, #spectate-next:hover { border-color: var(--warning); }
+
   /* ---- Virtual joystick (touch only) ---- */
   #joystick {
     position: fixed;
@@ -1334,6 +1411,15 @@
   <canvas id="minimap" width="160" height="120" hidden></canvas>
   <div id="hud-status"><span id="hud-dot"></span><span id="hud-text">Not connected</span></div>
 
+  <div id="spectate-banner" hidden>
+    <button id="spectate-prev" aria-label="Previous player">&lsaquo;</button>
+    <div id="spectate-labels">
+      <span id="spectate-label">SPECTATING</span>
+      <span id="spectate-name">-</span>
+    </div>
+    <button id="spectate-next" aria-label="Next player">&rsaquo;</button>
+  </div>
+
   <div id="countdown-overlay"><div id="countdown-number">3</div></div>
 
   <div id="hud-stats" hidden>
@@ -1341,7 +1427,10 @@
     <div class="stat-bar-track"><div class="stat-bar-fill" id="stamina-fill"></div></div>
   </div>
 
-  <div id="ammo-readout" hidden></div>
+  <div id="ammo-readout" hidden>
+    <div id="ammo-readout-text"></div>
+    <div id="reload-progress-track"><div id="reload-progress-fill"></div></div>
+  </div>
   <div id="inventory-bar" hidden></div>
   <div id="kill-feed"></div>
   <div id="toast-container"></div>
@@ -1377,6 +1466,7 @@
   <div id="aim-stick"><div id="aim-stick-thumb"></div></div>
   <button class="action-btn" id="sprint-btn">SPRINT</button>
   <button class="action-btn" id="interact-btn">USE</button>
+  <button class="action-btn" id="reload-btn">RELOAD</button>
 
 
   <!-- ROTATE PROMPT -->
@@ -1440,9 +1530,15 @@
   const chestModalClose = document.getElementById('chest-modal-close');
   const toastContainer = document.getElementById('toast-container');
   const ammoReadout = document.getElementById('ammo-readout');
+  const ammoReadoutText = document.getElementById('ammo-readout-text');
+  const reloadProgressFill = document.getElementById('reload-progress-fill');
   const roundOverOverlay = document.getElementById('round-over-overlay');
   const roundOverReason = document.getElementById('round-over-reason');
   const roundOverScores = document.getElementById('round-over-scores');
+  const spectateBanner = document.getElementById('spectate-banner');
+  const spectateName = document.getElementById('spectate-name');
+  const spectatePrevBtn = document.getElementById('spectate-prev');
+  const spectateNextBtn = document.getElementById('spectate-next');
 
   if (isTouch) { joystick.classList.add('visible'); aimStick.classList.add('visible'); }
   let killFeedEl = document.getElementById('kill-feed');
@@ -1572,10 +1668,18 @@
   // of it, while a lone shot with nothing following it still rings out in
   // full. Different players (or the same player's other weapon) get their
   // own independent voice and can freely overlap — that's just a firefight.
+  //
+  // Every shot is also positional: quieter the farther away it was fired,
+  // and panned left/right toward the direction it came from. Firing your
+  // own weapon naturally comes out at full volume, dead-center — the source
+  // position is (essentially) your own position either way.
   const WEAPON_SFX_FILES = { pistol: 'pistol-shot.mp3', smg: 'smg-burst.mp3', rifle: 'rifle-shot.mp3', shotgun: 'shotgun-shot.mp3' };
-  const WEAPON_SFX_GAIN = { pistol: 0.85, smg: 0.85, rifle: 0.85, shotgun: 0.85 };
+  const WEAPON_SFX_GAIN = { pistol: 0.64, smg: 0.64, rifle: 0.64, shotgun: 0.64 }; // 25% quieter than the original 0.85
+  const HEARING_CLOSE_DIST = 150;   // full volume within this range, regardless of pan
+  const HEARING_MAX_DIST = 1600;    // beyond this, a shot is inaudible — not worth even spending a voice on
+  const HEARING_PAN_RANGE = 500;    // horizontal distance at which panning reaches hard left/right
   const weaponBuffers = {};
-  const weaponSfxVoices = new Map(); // "ownerId::type" -> { source, gain }
+  const weaponSfxVoices = new Map(); // "ownerId::type" -> { source, gain, panner? }
 
   (function loadWeaponSfx() {
     const ctx = ensureAudioCtx();
@@ -1589,11 +1693,31 @@
     });
   })();
 
-  function playWeaponSfx(ownerId, type) {
+  // Eases out gently at first, then falls off faster near the edge of
+  // hearing range, rather than a hard linear cutoff or an abrupt silence.
+  function hearingFalloff(dist) {
+    if (dist <= HEARING_CLOSE_DIST) return 1;
+    if (dist >= HEARING_MAX_DIST) return 0;
+    const t = (dist - HEARING_CLOSE_DIST) / (HEARING_MAX_DIST - HEARING_CLOSE_DIST);
+    return 1 - t * t;
+  }
+
+  function playWeaponSfx(ownerId, type, sourceX, sourceY) {
     if (audioMuted || sfxVolume === 0) return;
     const buffer = weaponBuffers[type];
     const ctx = sfxAudioCtx; // created by loadWeaponSfx/ensureAudioCtx well before any shot can be fired
     if (!buffer || !ctx) return; // not decoded yet — skip silently rather than force a fallback beep
+
+    const me = players[myId];
+    const listenerX = (renderX !== null) ? renderX : (me ? me.x : sourceX);
+    const listenerY = (renderY !== null) ? renderY : (me ? me.y : sourceY);
+    const dx = sourceX - listenerX, dy = sourceY - listenerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const falloff = hearingFalloff(dist);
+    if (falloff <= 0) return; // too far away to hear at all
+
+    const pan = Math.max(-1, Math.min(1, dx / HEARING_PAN_RANGE));
+
     try {
       const now = ctx.currentTime;
       const key = ownerId + '::' + type;
@@ -1611,15 +1735,24 @@
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime((sfxVolume / 100) * (WEAPON_SFX_GAIN[type] || 0.85), now);
+      gain.gain.setValueAtTime((sfxVolume / 100) * (WEAPON_SFX_GAIN[type] || 0.64) * falloff, now);
+
+      let panner = null;
       source.connect(gain);
-      gain.connect(ctx.destination);
+      if (ctx.createStereoPanner) {
+        panner = ctx.createStereoPanner();
+        panner.pan.setValueAtTime(pan, now);
+        gain.connect(panner);
+        panner.connect(ctx.destination);
+      } else {
+        gain.connect(ctx.destination); // very old browser — no panning, falloff still applies
+      }
       source.start(now);
 
-      const voice = { source, gain };
+      const voice = { source, gain, panner };
       weaponSfxVoices.set(key, voice);
       source.onended = () => {
-        try { source.disconnect(); gain.disconnect(); } catch (e) {}
+        try { source.disconnect(); gain.disconnect(); if (panner) panner.disconnect(); } catch (e) {}
         if (weaponSfxVoices.get(key) === voice) weaponSfxVoices.delete(key);
       };
     } catch (e) { /* audio not available — silently skip */ }
@@ -1647,6 +1780,8 @@
   let muzzleFlashes = [];         // {x,y,angle,color,expiresAt} — local-only, purely cosmetic
   let impactSparks = [];          // {x,y,expiresAt} — spawned wherever a bullet disappears
   let chestModalIndex = null;     // which chest the loot modal is currently showing, or null
+  let isSpectating = false;       // true if we joined mid-round and are watching, not playing, this round
+  let spectateTargetId = null;    // which player's viewpoint the camera is currently following while spectating
   let lastKnownHealth = null;     // used to detect "just got hit" for the damage vignette
   let wasAlive = true;            // used to detect the alive -> dead transition for the respawn overlay
   let lastRoundEndsAt = 0;
@@ -1655,21 +1790,72 @@
   // Waiting for a full server round-trip before you see yourself move feels
   // laggy, especially over real internet. Instead we move our own circle
   // immediately based on input, matching the server's own movement rule,
-  // then gently pull toward wherever the server says we actually are (in
-  // case of drift). The server remains the authority; this is just for feel.
+  // then reconcile against wherever the server says we actually are. The
+  // server remains the sole authority; this is just for feel.
   const BASE_SPEED_PER_SEC = 6 * 30;   // matches server BASE_SPEED
   const SPRINT_SPEED_PER_SEC = 10 * 30; // matches server SPRINT_SPEED
+  const SPRINT_DRAIN_PER_SEC = 1.4 * 30; // matches server SPRINT_DRAIN
+  const SPRINT_REGEN_PER_SEC = 0.6 * 30; // matches server SPRINT_REGEN
+  const EXHAUST_RECOVER_FRACTION = 0.15; // matches server's hysteresis threshold
   let predictedX = null;
   let predictedY = null;
-  // The gap between "where I predicted" and "where the server says" is
-  // EXPECTED to be nonzero for the first round-trip after any new key
-  // press — the server hasn't received/processed that input yet. Treating
-  // that expected gap as an error to correct is exactly what caused the
-  // "jump then bounce back" bug. So: ignore small gaps entirely (trust our
-  // own prediction), and only ever correct for a large one (a real desync,
-  // e.g. a collision the server enforced that we didn't predict).
-  const RECONCILE_THRESHOLD = 24; // px
-  const RECONCILE_RATE = 0.15;
+  // What's actually drawn on screen (camera, your own circle, aim origin)
+  // — chases predictedX/Y with a little lag so that even a legitimate,
+  // correctly-computed reconciliation adjustment (see below) reads as a
+  // quick smooth glide rather than an instant pop. predictedX/Y itself
+  // stays perfectly precise for anything gameplay-relevant (collision,
+  // replay math) — only the rendered position is ever smoothed.
+  let renderX = null;
+  let renderY = null;
+  let predictedStamina = null;
+  let predictedExhausted = false;
+
+  // Every input we've predicted locally but the server hasn't confirmed yet
+  // (via its 'acked' sequence number), in the order they were applied.
+  // Reconciliation replays these on top of the authoritative position
+  // instead of blending toward it — see the 'state' handler below for why.
+  let inputSeq = 0;
+  let pendingInputs = [];
+
+  // The single source of truth for "how does one step of movement work,"
+  // used identically by (a) real-time local prediction every frame and (b)
+  // replaying pending inputs on top of a fresh authoritative position after
+  // reconciliation. A previous version of this game predicted speed off of
+  // the server's last-known 'sprinting' flag, which lags behind by a full
+  // round-trip — right as you started sprinting, or changed direction while
+  // sprinting, the client would keep predicting the old speed for a beat
+  // while the server had already moved on, producing a real positional gap
+  // that then had to be visibly corrected. Deriving sprint/speed from
+  // locally-known stamina (mirroring the server's own hysteresis) removes
+  // that lag entirely — both sides reach the same conclusion about speed at
+  // the same time, because both are just applying the same rule to the same
+  // (already-known) inputs, not waiting on each other.
+  function stepMovementXY(x, y, stamina, exhausted, keys, dt) {
+    const wantsToMove = keys.up || keys.down || keys.left || keys.right;
+    let nextExhausted = exhausted;
+    if (stamina <= 0) nextExhausted = true;
+    else if (stamina >= 100 * EXHAUST_RECOVER_FRACTION) nextExhausted = false;
+
+    const sprinting = keys.sprint && !nextExhausted && stamina > 0 && wantsToMove;
+    const speed = sprinting ? SPRINT_SPEED_PER_SEC : BASE_SPEED_PER_SEC;
+    const nextStamina = sprinting
+      ? Math.max(0, stamina - SPRINT_DRAIN_PER_SEC * dt)
+      : Math.min(100, stamina + SPRINT_REGEN_PER_SEC * dt);
+
+    let newX = x;
+    if (keys.left) newX -= speed * dt;
+    if (keys.right) newX += speed * dt;
+    newX = Math.max(16, Math.min(WORLD_W - 16, newX));
+    if (circleHitsSolid(newX, y, 16)) newX = x;
+
+    let newY = y;
+    if (keys.up) newY -= speed * dt;
+    if (keys.down) newY += speed * dt;
+    newY = Math.max(16, Math.min(WORLD_H - 16, newY));
+    if (circleHitsSolid(newX, newY, 16)) newY = y;
+
+    return { x: newX, y: newY, stamina: nextStamina, exhausted: nextExhausted };
+  }
 
   function setHudStatus(state) {
     hudDot.className = state; // 'connected' | 'disconnected' | ''
@@ -1681,6 +1867,8 @@
   function connect(afterOpen) {
     predictedX = null;
     predictedY = null;
+    renderX = null;
+    renderY = null;
     const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
     ws = new WebSocket(protocol + location.host);
 
@@ -1716,7 +1904,9 @@
 
       if (msg.type === 'roomJoined') {
         currentRoomCode = msg.code;
-        if (msg.started) {
+        if (msg.spectating) {
+          enterSpectate(); // a round is already underway — watch until it ends, then join in for real
+        } else if (msg.started) {
           enterGame(0, true); // round already in progress — skip the lobby and the fake countdown/freeze
         } else {
           enterParty();
@@ -1770,25 +1960,51 @@
         syncBullets(msg.bullets || []);
         if (chestModalIndex !== null) renderChestModal(); // keep it live if someone else loots from it too
 
+        if (playerAnimState.size > Object.keys(players).length) {
+          for (const trackedId of playerAnimState.keys()) if (!players[trackedId]) playerAnimState.delete(trackedId);
+          for (const trackedId of recoilKick.keys()) if (!players[trackedId]) recoilKick.delete(trackedId);
+        }
+
+        if (isSpectating) pickSpectateTarget();
+
         const me = players[myId];
         if (me) {
           const justRevived = !wasAlive && me.alive;
-          if (predictedX === null || justRevived) {
-            // First update we've seen for ourselves, or we just respawned
-            // somewhere new — snap exactly rather than gently sliding the
-            // camera across the whole map from where we died.
+          if (predictedX === null || justRevived || !me.alive) {
+            // First update we've seen for ourselves, we just respawned
+            // somewhere new, or we're currently downed (server isn't
+            // moving us — pin the camera exactly, don't replay stale
+            // pre-death inputs into a phantom drift): snap exactly and
+            // drop anything pending, since it's no longer relevant.
             predictedX = me.x;
             predictedY = me.y;
+            predictedStamina = me.stamina;
+            predictedExhausted = me.exhausted;
+            pendingInputs.length = 0;
+            renderX = me.x; // a real teleport — snap the camera too, don't glide across the map
+            renderY = me.y;
           } else {
-            const dx = me.x - predictedX;
-            const dy = me.y - predictedY;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > RECONCILE_THRESHOLD) {
-              // Only a real desync gets corrected, and still gently — never
-              // a snap, so even this case doesn't look like a "bounce."
-              predictedX += dx * RECONCILE_RATE;
-              predictedY += dy * RECONCILE_RATE;
+            // Discard whatever the server has now confirmed — its effect
+            // is already baked into me.x/me.y — then replay only the
+            // inputs it hasn't seen yet on top of that authoritative base.
+            // If our own prediction was already correct (the common case),
+            // this reconstructs the exact same position we already had, so
+            // nothing visibly moves. Only a genuine discrepancy (say, a
+            // collision the server resolved differently) produces a
+            // correction, and even then it's baked smoothly into the
+            // replay rather than snapping or gradually bouncing toward it.
+            const ackedSeq = (msg.acked && msg.acked[myId]) || 0;
+            while (pendingInputs.length && pendingInputs[0].seq <= ackedSeq) pendingInputs.shift();
+
+            let simX = me.x, simY = me.y, simStamina = me.stamina, simExhausted = me.exhausted;
+            for (const input of pendingInputs) {
+              const result = stepMovementXY(simX, simY, simStamina, simExhausted, input.keys, input.dt);
+              simX = result.x; simY = result.y; simStamina = result.stamina; simExhausted = result.exhausted;
             }
+            predictedX = simX;
+            predictedY = simY;
+            predictedStamina = simStamina;
+            predictedExhausted = simExhausted;
           }
 
           if (lastKnownHealth !== null && me.health < lastKnownHealth) flashDamageVignette();
@@ -1822,7 +2038,7 @@
         bulletRender.set(b.id, { x: b.x, y: b.y, vx: b.vx, vy: b.vy, type: b.type, color: b.color });
         spawnMuzzleFlash(b.x, b.y, Math.atan2(b.vy, b.vx), b.color);
         if (!newShots.some((s) => s.ownerId === b.ownerId && s.type === b.type)) {
-          newShots.push({ ownerId: b.ownerId, type: b.type });
+          newShots.push({ ownerId: b.ownerId, type: b.type, x: b.x, y: b.y });
         }
       }
     });
@@ -1832,7 +2048,10 @@
         bulletRender.delete(id);
       }
     }
-    newShots.forEach((s) => playWeaponSfx(s.ownerId, s.type));
+    newShots.forEach((s) => {
+      playWeaponSfx(s.ownerId, s.type, s.x, s.y);
+      recoilKick.set(s.ownerId, performance.now());
+    });
   }
 
   function advanceBullets(dt) {
@@ -1891,9 +2110,10 @@
     if (snapshot === lastSentKeys && !aimChanged) return;
     lastSentKeys = snapshot;
     lastSentAim = myAimAngle;
+    inputSeq++;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', keys, aimAngle: myAimAngle }));
+      ws.send(JSON.stringify({ type: 'input', seq: inputSeq, keys, aimAngle: myAimAngle }));
     }
   }
 
@@ -1915,17 +2135,22 @@
   function sendShoot() {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'shoot', angle: myAimAngle }));
   }
+  function sendReload() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'reload' }));
+  }
 
   // Client-side mirror of each weapon's fire rate, used only to throttle
   // how often we ASK to fire — the server re-validates ammo/cooldown itself
   // and is the only thing that actually spawns a bullet.
   const WEAPON_FIRE_RATE = { pistol: 260, smg: 90, rifle: 230, shotgun: 750 };
+  const WEAPON_RELOAD_MS = { pistol: 900, smg: 1400, rifle: 1700, shotgun: 2200 };
   let lastLocalShotAt = {};
 
   function attemptLocalFire(nowMs) {
     if (!firing) return;
     const me = players[myId];
     if (!me || !me.alive) return;
+    if (me.reloadingUntil > Date.now()) return; // hands are busy — don't bother asking
     const item = me.inventory[me.equipped];
     if (!item) return;
     const rate = WEAPON_FIRE_RATE[item.type];
@@ -1939,6 +2164,7 @@
   window.addEventListener('keydown', (e) => {
     if (setKey(e.code, true)) sendInput();
     if (e.code === 'KeyE' && !e.repeat) sendInteract();
+    if (e.code === 'KeyR' && !e.repeat) sendReload();
     if (e.code >= 'Digit1' && e.code <= 'Digit9') sendEquip(parseInt(e.code.slice(-1), 10) - 1);
   });
   window.addEventListener('keyup', (e) => { if (setKey(e.code, false)) sendInput(); });
@@ -1965,8 +2191,8 @@
     const worldX = clientX + lastCamX;
     const worldY = clientY + lastCamY;
     const me = players[myId];
-    const originX = (predictedX !== null) ? predictedX : (me ? me.x : worldX);
-    const originY = (predictedY !== null) ? predictedY : (me ? me.y : worldY);
+    const originX = (renderX !== null) ? renderX : (me ? me.x : worldX);
+    const originY = (renderY !== null) ? renderY : (me ? me.y : worldY);
     myAimAngle = Math.atan2(worldY - originY, worldX - originX);
   }
 
@@ -1988,8 +2214,8 @@
     if (e.button !== 0) return; // left click only — right click reserved (see contextmenu below)
     updateAimFromMouse(e.clientX, e.clientY);
     const me = players[myId];
-    const originX = (predictedX !== null) ? predictedX : (me ? me.x : 0);
-    const originY = (predictedY !== null) ? predictedY : (me ? me.y : 0);
+    const originX = (renderX !== null) ? renderX : (me ? me.x : 0);
+    const originY = (renderY !== null) ? renderY : (me ? me.y : 0);
     const worldX = e.clientX + lastCamX, worldY = e.clientY + lastCamY;
 
     // Clicking directly on a chest opens it instead of firing at it.
@@ -2001,15 +2227,18 @@
   window.addEventListener('mouseup', () => { firing = false; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  // Mobile sprint/interact buttons — hold-to-sprint, tap-to-interact.
+  // Mobile sprint/interact/reload buttons — hold-to-sprint, tap-to-interact, tap-to-reload.
   const sprintBtn = document.getElementById('sprint-btn');
   const interactBtn = document.getElementById('interact-btn');
-  if (isTouch) { sprintBtn.classList.add('visible'); interactBtn.classList.add('visible'); }
+  const reloadBtn = document.getElementById('reload-btn');
+  if (isTouch) { sprintBtn.classList.add('visible'); interactBtn.classList.add('visible'); reloadBtn.classList.add('visible'); }
   sprintBtn.addEventListener('pointerdown', () => { keys.sprint = true; sendInput(); sprintBtn.classList.add('active-press'); });
   sprintBtn.addEventListener('pointerup', () => { keys.sprint = false; sendInput(); sprintBtn.classList.remove('active-press'); });
   sprintBtn.addEventListener('pointerleave', () => { keys.sprint = false; sendInput(); sprintBtn.classList.remove('active-press'); });
   interactBtn.addEventListener('pointerdown', () => { sendInteract(); interactBtn.classList.add('active-press'); });
   interactBtn.addEventListener('pointerup', () => interactBtn.classList.remove('active-press'));
+  reloadBtn.addEventListener('pointerdown', () => { sendReload(); reloadBtn.classList.add('active-press'); });
+  reloadBtn.addEventListener('pointerup', () => reloadBtn.classList.remove('active-press'));
 
   // Virtual joystick (movement): drag within the base, direction maps to
   // the same up/down/left/right booleans keyboard input uses. Tracks its
@@ -2252,24 +2481,20 @@
     if (predictedX === null || roundFrozen) return;
     const me = players[myId];
     if (me && me.alive === false) return; // downed — server isn't moving us either, don't drift the camera
+    if (predictedStamina === null) predictedStamina = me ? me.stamina : 100;
 
-    // Use the server's own echoed sprinting flag for our speed rather than
-    // re-deriving stamina/hysteresis client-side — one state broadcast of
-    // lag on sprint-speed changing is imperceptible, and it guarantees we
-    // never predict a speed the server wouldn't also arrive at.
-    const speed = (me && me.sprinting) ? SPRINT_SPEED_PER_SEC : BASE_SPEED_PER_SEC;
+    const keysSnapshot = { up: keys.up, down: keys.down, left: keys.left, right: keys.right, sprint: keys.sprint };
+    const result = stepMovementXY(predictedX, predictedY, predictedStamina, predictedExhausted, keysSnapshot, dt);
+    predictedX = result.x;
+    predictedY = result.y;
+    predictedStamina = result.stamina;
+    predictedExhausted = result.exhausted;
 
-    let newX = predictedX;
-    if (keys.left) newX -= speed * dt;
-    if (keys.right) newX += speed * dt;
-    newX = Math.max(16, Math.min(WORLD_W - 16, newX));
-    if (!circleHitsSolid(newX, predictedY, 16)) predictedX = newX;
-
-    let newY = predictedY;
-    if (keys.up) newY -= speed * dt;
-    if (keys.down) newY += speed * dt;
-    newY = Math.max(16, Math.min(WORLD_H - 16, newY));
-    if (!circleHitsSolid(predictedX, newY, 16)) predictedY = newY;
+    // Remember this step, tagged with whichever input sequence was most
+    // recently sent, so it can be replayed on top of a fresh authoritative
+    // position once the server acknowledges it — see the 'state' handler.
+    pendingInputs.push({ seq: inputSeq, dt, keys: keysSnapshot });
+    if (pendingInputs.length > 600) pendingInputs.shift(); // safety valve for a long connection stall — never hit in normal play
   }
 
   // ---- Item labels/icons — the one shared lookup used by the inventory
@@ -2439,6 +2664,13 @@
           ctx.stroke();
         }
       }
+      // A small entry rug just inside the front door — cheap, and it's
+      // the kind of detail that makes an entrance feel like an entrance.
+      const mainDoor = h.doors && h.doors[0];
+      if (mainDoor && !mainDoor.vertical) {
+        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        ctx.fillRect(mainDoor.x + mainDoor.w / 2 - 22, h.y + h.h - 30, 44, 22);
+      }
     });
   }
 
@@ -2448,6 +2680,10 @@
       ctx.fillRect(o.x + 3, o.y + 4, o.w, o.h);
       ctx.fillStyle = '#4a4e5a';
       ctx.fillRect(o.x, o.y, o.w, o.h);
+      // A thin lighter strip along the top edge reads as a bevel catching
+      // light, breaking up what would otherwise be a completely flat block.
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(o.x, o.y, o.w, Math.min(2, o.h));
     });
   }
 
@@ -2512,11 +2748,44 @@
     return h.rooms.find((r) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h);
   }
 
+  // Identifies "where" a position is for indoor-visibility purposes: a
+  // stable string that's the same for two positions only if they're both
+  // outside, or both inside the exact same room of the exact same house.
+  // Used to decide whether one player can see another at all — someone
+  // standing outside shouldn't be able to see (or be seen by) someone
+  // inside a house, and separate rooms within the same house are treated
+  // the same way, matching how the roof-fade above already reasons about
+  // "which room am I actually in."
+  function locationKey(x, y) {
+    for (let i = 0; i < houses.length; i++) {
+      const h = houses[i];
+      if (!isInsideHouse(h, x, y)) continue;
+      const room = roomContaining(h, x, y);
+      return i + ':' + (room ? h.rooms.indexOf(room) : 'hall');
+    }
+    return 'outside';
+  }
+
+  function canSee(viewerX, viewerY, targetX, targetY) {
+    return locationKey(viewerX, viewerY) === locationKey(targetX, targetY);
+  }
+
   function drawRoofs(myX, myY) {
     houses.forEach((h) => {
       if (!isInsideHouse(h, myX, myY)) {
+        // Entrance steps — a couple of small stone slabs just outside the
+        // front door, so the entrance reads as an actual entrance instead
+        // of just a gap in the wall.
+        const mainDoor = h.doors && h.doors[0];
+        if (mainDoor && !mainDoor.vertical) {
+          ctx.fillStyle = 'rgba(120,110,100,0.55)';
+          ctx.fillRect(mainDoor.x + mainDoor.w / 2 - 20, h.y + h.h, 40, 10);
+          ctx.fillRect(mainDoor.x + mainDoor.w / 2 - 14, h.y + h.h + 10, 28, 6);
+        }
+
         ctx.fillStyle = h.roofColor || '#8b3a3a';
         ctx.fillRect(h.x, h.y, h.w, h.h);
+
         if (textureQuality !== 'low') {
           ctx.strokeStyle = 'rgba(0,0,0,0.25)';
           ctx.lineWidth = 2;
@@ -2526,15 +2795,30 @@
             ctx.lineTo(h.x + h.w, ly);
             ctx.stroke();
           }
+          // A ridge line down the middle suggests a peaked roof rather
+          // than a flat painted rectangle.
+          ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(h.x, h.y + h.h / 2);
+          ctx.lineTo(h.x + h.w, h.y + h.h / 2);
+          ctx.stroke();
         }
+
         if (h.chimney) {
           ctx.fillStyle = '#5a4636';
           ctx.fillRect(h.x + h.w * 0.7, h.y - 10, 18, 24);
         }
-        if (textureQuality === 'ultra') {
+
+        if (textureQuality === 'high' || textureQuality === 'ultra') {
+          // A couple of lit windows per room rather than a fixed two for
+          // the whole building — a 6-room mansion should look bigger than
+          // a 1-room shack, not identically detailed.
           ctx.fillStyle = 'rgba(244,196,48,0.5)';
-          ctx.fillRect(h.x + 14, h.y + h.h * 0.4, 10, 10);
-          ctx.fillRect(h.x + h.w - 24, h.y + h.h * 0.4, 10, 10);
+          h.rooms.forEach((r) => {
+            ctx.fillRect(r.x + r.w * 0.2, r.y + r.h * 0.4, 10, 10);
+            ctx.fillRect(r.x + r.w * 0.72, r.y + r.h * 0.4, 10, 10);
+          });
         }
         return;
       }
@@ -2561,6 +2845,21 @@
     smg: { len: 18, w: 6, color: '#3d4048' },
   };
 
+  // Per-player animation memory — none of this is gameplay-relevant (it's
+  // pure "juice"), so unlike facing/position it's fine for it to be
+  // estimated/approximate rather than server-driven.
+  const playerAnimState = new Map(); // id -> { lastX, lastY, walkAmount, bobPhase, lastHealth, wasAlive, deathAnimStart, reviveAnimStart }
+  const recoilKick = new Map();      // id -> timestamp of their most recent shot, for a brief weapon-kick
+
+  function getPlayerAnim(id, x, y, health, alive) {
+    let anim = playerAnimState.get(id);
+    if (!anim) {
+      anim = { lastX: x, lastY: y, walkAmount: 0, bobPhase: 0, lastHealth: health, wasAlive: alive, deathAnimStart: 0, reviveAnimStart: 0 };
+      playerAnimState.set(id, anim);
+    }
+    return anim;
+  }
+
   function drawPlayer(id, p, x, y, dt) {
     // Facing comes straight from the server's aimAngle now — a value the
     // player controls directly (mouse position / aim-stick angle), not
@@ -2572,28 +2871,90 @@
     // to begin with, so there's nothing left to jitter.
     const facing = typeof p.aimAngle === 'number' ? p.aimAngle : 0;
     const alive = p.alive !== false;
+    const now = performance.now();
+    const anim = getPlayerAnim(id, x, y, p.health, alive);
+
+    // Walk bob: estimate speed from how far they actually moved this frame
+    // (no need for their real key state — this is cosmetic) and ease the
+    // bob amount in/out so starting or stopping doesn't snap.
+    const moveDist = Math.hypot(x - anim.lastX, y - anim.lastY);
+    const instSpeed = dt > 0 ? moveDist / dt : 0;
+    const targetWalk = Math.max(0, Math.min(1, instSpeed / SPRINT_SPEED_PER_SEC));
+    anim.walkAmount += (targetWalk - anim.walkAmount) * Math.min(1, dt * 8);
+    anim.bobPhase += dt * (4 + anim.walkAmount * 5);
+    anim.lastX = x;
+    anim.lastY = y;
+
+    // Death / revive transitions, timestamped for the flop/pop-in below.
+    if (anim.wasAlive && !alive) anim.deathAnimStart = now;
+    if (!anim.wasAlive && alive) anim.reviveAnimStart = now;
+    const justHit = p.health < anim.lastHealth;
+    anim.lastHealth = p.health;
+    anim.wasAlive = alive;
+
+    const DEATH_ANIM_MS = 380;
+    const deathT = anim.deathAnimStart ? Math.min(1, (now - anim.deathAnimStart) / DEATH_ANIM_MS) : 1;
+    const REVIVE_ANIM_MS = 300;
+    const reviveT = anim.reviveAnimStart ? Math.min(1, (now - anim.reviveAnimStart) / REVIVE_ANIM_MS) : 1;
+
+    const bobOffset = alive ? Math.sin(anim.bobPhase * Math.PI * 2) * anim.walkAmount * 2.5 : 0;
+    const drawX = x;
+    const drawY = y + bobOffset;
 
     ctx.save();
-    if (!alive) ctx.globalAlpha = 0.35; // downed — faded out until they respawn
 
-    drawShadow(x, y + 14, 14, 5);
+    if (!alive) {
+      // Falls/fades out over DEATH_ANIM_MS, then rests faded until revived.
+      ctx.globalAlpha = 1 - deathT * 0.65;
+      ctx.translate(drawX, drawY);
+      ctx.rotate(deathT * (Math.PI / 2.4));
+      ctx.translate(-drawX, -drawY);
+    } else if (reviveT < 1) {
+      // Pops in at half size right after respawning.
+      const scale = 0.5 + 0.5 * reviveT;
+      ctx.translate(drawX, drawY);
+      ctx.scale(scale, scale);
+      ctx.translate(-drawX, -drawY);
+    }
+
+    drawShadow(drawX, y + 14, 14, 5);
 
     // Held weapon, drawn behind the body, oriented toward the aim angle.
+    // Kicks back briefly on firing, and dips/tilts through a reload.
     const equippedItem = p.inventory && p.inventory[p.equipped];
     const look = equippedItem && WEAPON_LOOK[equippedItem.type];
     if (look && alive) {
+      const lastShot = recoilKick.get(id) || 0;
+      const recoilElapsed = now - lastShot;
+      const RECOIL_MS = 110;
+      const recoilAmount = recoilElapsed < RECOIL_MS ? (1 - recoilElapsed / RECOIL_MS) : 0;
+
+      const isReloading = p.reloadingUntil && p.reloadingUntil > Date.now();
+      let reloadTilt = 0;
+      if (isReloading) {
+        const total = WEAPON_RELOAD_MS[equippedItem.type] || 1000;
+        const elapsed = total - Math.max(0, p.reloadingUntil - Date.now());
+        reloadTilt = Math.sin(Math.min(1, elapsed / total) * Math.PI) * 0.6; // dips down mid-reload, back up by the end
+      }
+
       ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(facing);
+      ctx.translate(drawX, drawY);
+      ctx.rotate(facing + reloadTilt);
       ctx.fillStyle = look.color;
-      ctx.fillRect(10, -look.w / 2, look.len, look.w);
+      ctx.fillRect(10 - recoilAmount * 5, -look.w / 2, look.len, look.w);
       ctx.restore();
     }
 
     ctx.beginPath();
-    ctx.arc(x, y, 16, 0, Math.PI * 2);
+    ctx.arc(drawX, drawY, 16, 0, Math.PI * 2);
     ctx.fillStyle = p.color;
     ctx.fill();
+    if (justHit && alive) {
+      // A quick white flash reads as "took a hit" from across the map,
+      // not just for whoever got shot.
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.fill();
+    }
     if (id === myId) {
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#fff';
@@ -2603,7 +2964,7 @@
     ctx.fillStyle = '#fff';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(p.name, x, y - 30);
+    ctx.fillText(p.name, drawX, drawY - 30);
 
     // Small health bar over everyone but yourself (you already have the
     // big HUD bar) — quick read on who's low without opening a scoreboard.
@@ -2611,9 +2972,9 @@
       const barW = 34, barH = 4;
       const pct = Math.max(0, p.health / p.maxHealth);
       ctx.fillStyle = 'rgba(10,11,16,0.6)';
-      ctx.fillRect(x - barW / 2, y - 24, barW, barH);
+      ctx.fillRect(drawX - barW / 2, drawY - 24, barW, barH);
       ctx.fillStyle = pct > 0.5 ? '#2dd4bf' : pct > 0.25 ? '#f4c430' : '#ff4655';
-      ctx.fillRect(x - barW / 2, y - 24, barW * pct, barH);
+      ctx.fillRect(drawX - barW / 2, drawY - 24, barW * pct, barH);
     }
 
     ctx.restore();
@@ -2687,8 +3048,9 @@
     for (const id in players) {
       const p = players[id];
       if (p.alive === false) continue; // downed — don't show a stuck dot
-      const x = (id === myId && predictedX !== null) ? predictedX : p.x;
-      const y = (id === myId && predictedY !== null) ? predictedY : p.y;
+      const x = (id === myId && renderX !== null) ? renderX : p.x;
+      const y = (id === myId && renderY !== null) ? renderY : p.y;
+      if (id !== myId && !canSee(myX, myY, x, y)) continue; // same occlusion as the main view — no wallhack via the minimap either
       minimapCtx.beginPath();
       minimapCtx.arc(x * scaleX, y * scaleY, id === myId ? 3.5 : 2.5, 0, Math.PI * 2);
       minimapCtx.fillStyle = id === myId ? '#fff' : p.color;
@@ -2749,10 +3111,13 @@
     healthFill.style.width = Math.max(0, (me.health / me.maxHealth) * 100) + '%';
     staminaFill.style.width = Math.max(0, (me.stamina / me.maxStamina) * 100) + '%';
 
+    const isReloading = me.reloadingUntil > Date.now();
+
     inventoryBar.innerHTML = '';
     (me.inventory || []).forEach((item, idx) => {
       const slot = document.createElement('div');
       const isWeapon = !!item && WEAPON_TYPES_CLIENT.includes(item.type);
+      const slotReloading = isReloading && idx === me.reloadingSlot;
       slot.className = 'inv-slot'
         + (!item ? ' empty' : '')
         + (item && idx === me.equipped ? ' equipped' : '')
@@ -2760,10 +3125,10 @@
 
       if (item) {
         slot.textContent = ITEM_ICON[item.type] || '?';
-        if (item.ammo !== undefined) {
+        if (item.mag !== undefined) {
           const badge = document.createElement('span');
           badge.className = 'ammo-badge';
-          badge.textContent = item.ammo;
+          badge.textContent = slotReloading ? '\u21bb' : item.mag; // a small "reloading" glyph in place of the number
           slot.appendChild(badge);
         }
         slot.title = ITEM_LABEL[item.type] || item.type;
@@ -2782,27 +3147,57 @@
     });
 
     const equipped = me.inventory && me.inventory[me.equipped];
-    if (equipped && equipped.ammo !== undefined) {
-      ammoReadout.innerHTML = `${equipped.ammo} <span>${ITEM_ICON[equipped.type] || ''}</span>`;
-      ammoReadout.classList.toggle('empty', equipped.ammo <= 0);
+    if (equipped && equipped.mag !== undefined) {
+      const equippedReloading = isReloading && me.equipped === me.reloadingSlot;
+      ammoReadout.classList.toggle('empty', !equippedReloading && equipped.mag <= 0);
+      ammoReadout.classList.toggle('reloading', equippedReloading);
+      if (equippedReloading) {
+        ammoReadoutText.textContent = 'RELOADING';
+        const stats = WEAPON_RELOAD_MS[equipped.type] || 1000;
+        const elapsed = stats - Math.max(0, me.reloadingUntil - Date.now());
+        reloadProgressFill.style.width = Math.max(0, Math.min(100, (elapsed / stats) * 100)) + '%';
+      } else {
+        ammoReadoutText.innerHTML = `<span class="mag">${equipped.mag}</span> <span class="reserve">/ ${equipped.reserve}</span>`;
+      }
     } else {
-      ammoReadout.innerHTML = '';
-      ammoReadout.classList.remove('empty');
+      ammoReadout.classList.remove('empty', 'reloading');
+      ammoReadoutText.innerHTML = '';
     }
   }
 
   function draw(now) {
     const dt = Math.min((now - lastFrameTime) / 1000, 0.1); // clamp for tab-switch pauses
     lastFrameTime = now;
+    sendInput(); // cheap no-op unless aim/keys actually changed — bump the seq before predicting so this frame's step is tagged correctly
     updatePrediction(dt);
     advanceBullets(dt);
     pruneEffects();
     attemptLocalFire(now);
-    sendInput(); // cheap no-op unless aim/keys actually changed since the last send
+
+    // Chase the (precise) predicted position for what's actually drawn.
+    // During ordinary movement this tracks almost exactly — predictedX/Y
+    // itself already moves smoothly every frame — so the only time this
+    // visibly does anything is smoothing out a rare reconciliation
+    // adjustment into a quick glide instead of a pop.
+    if (predictedX !== null) {
+      if (renderX === null) { renderX = predictedX; renderY = predictedY; }
+      else {
+        const chase = Math.min(1, dt / 0.05); // close ~any gap within ~50ms
+        renderX += (predictedX - renderX) * chase;
+        renderY += (predictedY - renderY) * chase;
+      }
+    }
 
     const dpr = window.devicePixelRatio || 1;
-    const myX = (predictedX !== null) ? predictedX : (players[myId] ? players[myId].x : WORLD_W / 2);
-    const myY = (predictedY !== null) ? predictedY : (players[myId] ? players[myId].y : WORLD_H / 2);
+    let myX, myY;
+    if (isSpectating) {
+      const target = spectateTargetId && players[spectateTargetId];
+      myX = target ? target.x : WORLD_W / 2;
+      myY = target ? target.y : WORLD_H / 2;
+    } else {
+      myX = (renderX !== null) ? renderX : (players[myId] ? players[myId].x : WORLD_W / 2);
+      myY = (renderY !== null) ? renderY : (players[myId] ? players[myId].y : WORLD_H / 2);
+    }
     const camX = clampCamera(myX - viewportW / 2, viewportW, WORLD_W);
     const camY = clampCamera(myY - viewportH / 2, viewportH, WORLD_H);
     lastCamX = camX;
@@ -2824,8 +3219,9 @@
 
     for (const id in players) {
       const p = players[id];
-      const x = (id === myId && predictedX !== null) ? predictedX : p.x;
-      const y = (id === myId && predictedY !== null) ? predictedY : p.y;
+      const x = (id === myId && renderX !== null) ? renderX : p.x;
+      const y = (id === myId && renderY !== null) ? renderY : p.y;
+      if (id !== myId && !canSee(myX, myY, x, y)) continue; // behind a wall you can't see through — a house occludes, it doesn't just fade
       drawPlayer(id, p, x, y, dt);
     }
     drawBullets();
@@ -3138,11 +3534,79 @@
     stopAllWeaponSfx(); // a shotgun blast ringing on for ~3s shouldn't tail off into the lobby screen
   }
 
+  // =========================================================
+  // Spectator mode — joining mid-round (or reconnecting mid-round) drops
+  // you into this instead of combat: you can watch, cycle whose viewpoint
+  // the camera follows, and everything renders exactly like normal play
+  // (including indoor occlusion, from the spectated player's position) —
+  // you just don't have a character of your own until the round ends.
+  // =========================================================
+  function enterSpectate() {
+    isSpectating = true;
+    spectateTargetId = null;
+    resetPerRoundUIState();
+    predictedX = null;
+    predictedY = null;
+    renderX = null;
+    renderY = null;
+
+    gameScreen.classList.add('active');
+    resizeCanvas();
+    pauseBtn.hidden = false;
+    minimap.hidden = false;
+    hudStats.hidden = true;      // no health/stamina — you don't have a character
+    inventoryBar.hidden = true;
+    ammoReadout.hidden = true;
+    spectateBanner.classList.add('visible');
+    // No movement/aim/action controls make sense without a character.
+    joystick.classList.remove('visible');
+    aimStick.classList.remove('visible');
+    sprintBtn.classList.remove('visible');
+    interactBtn.classList.remove('visible');
+    reloadBtn.classList.remove('visible');
+
+    requestAnimationFrame(() => {
+      gameScreen.classList.add('visible');
+      menuScreen.style.opacity = '0';
+      menuScreen.style.transform = 'scale(1.04)';
+    });
+    setTimeout(() => { menuScreen.style.display = 'none'; }, 520);
+  }
+
+  // direction: +1/-1 to cycle, or omitted to just make sure the current
+  // target is still valid (falls back to the first available player).
+  function pickSpectateTarget(direction) {
+    const ids = Object.keys(players);
+    if (ids.length === 0) { spectateTargetId = null; updateSpectateBanner(); return; }
+
+    if (direction && spectateTargetId && players[spectateTargetId]) {
+      const idx = ids.indexOf(spectateTargetId);
+      spectateTargetId = ids[(idx + direction + ids.length) % ids.length];
+    } else if (!spectateTargetId || !players[spectateTargetId]) {
+      spectateTargetId = ids[0];
+    }
+    updateSpectateBanner();
+  }
+
+  function updateSpectateBanner() {
+    const target = spectateTargetId && players[spectateTargetId];
+    spectateName.textContent = target ? target.name : 'Waiting for players...';
+  }
+
+  spectatePrevBtn.addEventListener('click', () => pickSpectateTarget(-1));
+  spectateNextBtn.addEventListener('click', () => pickSpectateTarget(1));
+
   function enterGame(countdownMs, alreadyInProgress) {
+    isSpectating = false;
     resetPerRoundUIState();
     roundFrozen = !alreadyInProgress; // a round already in progress has nothing to freeze for
     predictedX = null; // fresh round = a fresh spawn point, often far from where we were — snap, don't slide there
     predictedY = null;
+    renderX = null;
+    renderY = null;
+    predictedStamina = null;
+    predictedExhausted = false;
+    pendingInputs.length = 0;
     gameScreen.classList.add('active'); // now display:flex, still opacity:0
     resizeCanvas();
     pauseBtn.hidden = false;
@@ -3150,6 +3614,17 @@
     hudStats.hidden = false;
     inventoryBar.hidden = false;
     ammoReadout.hidden = false;
+    if (isTouch) {
+      // These get hidden again on every trip back to the lobby (see
+      // hideGameChrome) — re-show them each time a round actually starts,
+      // not just once at page load, or a second+ round would leave mobile
+      // players with no way to move, aim, or reload at all.
+      joystick.classList.add('visible');
+      aimStick.classList.add('visible');
+      sprintBtn.classList.add('visible');
+      interactBtn.classList.add('visible');
+      reloadBtn.classList.add('visible');
+    }
 
     requestAnimationFrame(() => {
       gameScreen.classList.add('visible'); // triggers the fade-in
@@ -3194,6 +3669,9 @@
   // room code — used both when leaving deliberately (pause menu -> leave)
   // and as the shared groundwork for returning to the lobby after a round.
   function hideGameChrome() {
+    isSpectating = false;
+    spectateTargetId = null;
+    spectateBanner.classList.remove('visible');
     pauseBtn.hidden = true;
     minimap.hidden = true;
     hudStats.hidden = true;
@@ -3201,7 +3679,9 @@
     ammoReadout.hidden = true;
     sprintBtn.classList.remove('visible', 'active-press');
     interactBtn.classList.remove('visible', 'active-press');
+    reloadBtn.classList.remove('visible', 'active-press');
     aimStick.classList.remove('visible', 'firing');
+    joystick.classList.remove('visible');
     document.getElementById('countdown-overlay').classList.remove('visible');
     pauseOverlay.classList.remove('visible');
     gameScreen.classList.remove('active', 'visible');
@@ -3249,19 +3729,34 @@
   // are taken one at a time, by hand, into a limited inventory.
   // =========================================================
   function openChestModal() {
+    lastRenderedChestSignature = null; // force a fresh render even if it happens to match a stale signature from a previously-viewed chest
     chestModalOverlay.classList.add('visible');
     renderChestModal();
   }
 
   function closeChestModal() {
     chestModalIndex = null;
+    lastRenderedChestSignature = null;
     chestModalOverlay.classList.remove('visible');
   }
+
+  // The modal is refreshed on every 'state' broadcast (30x/sec) so it stays
+  // live if someone else loots from the same chest — but rebuilding the
+  // TAKE buttons that often, unconditionally, meant a click's mousedown and
+  // mouseup could straddle a rebuild and land on a button that no longer
+  // exists, silently swallowing the click. Only touch the DOM when the
+  // chest's actual contents changed since the last render.
+  let lastRenderedChestSignature = null;
 
   function renderChestModal() {
     if (chestModalIndex === null) return;
     const state = chestState[chestModalIndex];
     const items = state ? state.items : [];
+
+    const signature = chestModalIndex + ':' + items.map((it) => (it ? (it.taken ? '1' : '0') + it.type : '_')).join(',');
+    if (signature === lastRenderedChestSignature) return;
+    lastRenderedChestSignature = signature;
+
     const untaken = [];
     items.forEach((item, slot) => { if (item && !item.taken) untaken.push({ slot, type: item.type }); });
 
@@ -3348,7 +3843,7 @@
     if (respawnTickHandle) { clearInterval(respawnTickHandle); respawnTickHandle = null; }
   }
 
-  const ROUND_END_LABEL = { killTarget: 'Kill target reached', timeUp: "Time's up" };
+  const ROUND_END_LABEL = { timeUp: "Time's up" };
 
   function showRoundOver(scores, reason) {
     roundOverReason.textContent = ROUND_END_LABEL[reason] || '';

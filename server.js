@@ -16,8 +16,8 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---- World constants ----
-const WORLD_WIDTH = 6400;
-const WORLD_HEIGHT = 4800;
+const WORLD_WIDTH = 9600;   // 50% bigger than the original 6400 in each dimension
+const WORLD_HEIGHT = 7200;  // (2.25x total area) — prop counts below are scaled to match
 const PLAYER_RADIUS = 16;
 const BASE_SPEED = 6;      // pixels/tick, walking
 const SPRINT_SPEED = 10;   // pixels/tick, sprinting
@@ -29,8 +29,7 @@ const COUNTDOWN_MS = 3000;
 const INTERACT_RANGE = 44;
 
 // ---- Round rules ----
-const KILL_TARGET = 15;               // first to this many kills ends the round early
-const TIME_LIMIT_MS = 5 * 60 * 1000;  // otherwise the round ends after 5 minutes
+const TIME_LIMIT_MS = 5 * 60 * 1000;  // a round lasts 5 minutes; whoever has the most kills when it ends wins
 const RESPAWN_MS = 3000;              // downed players come back after this long
 const ROUND_OVER_DISPLAY_MS = 8000;   // how long the results screen sits before the lobby reopens
 
@@ -101,28 +100,46 @@ function houseFootprint(roomCount) {
   return { w: roomCount * 150, h: 140 };
 }
 
-// Scatter houses across the (now much bigger) map with generous spacing so
-// they read as a spread-out village, not a cluster.
+// Houses are placed on a jittered grid rather than pure rejection sampling.
+// Rejection sampling (try a random spot, retry if it collides) makes close
+// spawns *unlikely*, not impossible — with enough houses on the map, "two
+// spawn right next to each other" was bound to happen occasionally. A grid
+// guarantees every house gets its own cell with guaranteed clearance from
+// its neighbors; the random jitter *within* each cell is what keeps it
+// from actually looking like a grid.
 function placeHouses(count) {
-  let attempts = 0;
-  while (HOUSES.length < count && attempts < count * 60) {
-    attempts++;
+  const cellW = 1300, cellH = 520; // comfortably fits even the largest (6-room, 900x140) house with real breathing room
+  const marginX = 300, marginY = 300; // keep houses off the world edge
+  const cols = Math.floor((WORLD_WIDTH - marginX * 2) / cellW);
+  const rows = Math.floor((WORLD_HEIGHT - marginY * 2) / cellH);
+
+  const cells = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push({ c, r });
+  // Fisher-Yates shuffle — take cells in random order so which grid slots
+  // end up empty (gaps to walk/drive through) varies map to map.
+  for (let i = cells.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
+  }
+
+  const target = Math.min(count, cells.length);
+  for (let i = 0; i < target; i++) {
+    const { c, r } = cells[i];
     const roomCount = pickRoomCount();
     const { w, h } = houseFootprint(roomCount);
-    const x = 200 + Math.random() * (WORLD_WIDTH - w - 400);
-    const y = 200 + Math.random() * (WORLD_HEIGHT - h - 400);
 
-    const tooClose = HOUSES.some((existing) => {
-      const pad = 260; // generous gap between houses
-      return x < existing.x + existing.w + pad && x + w + pad > existing.x &&
-             y < existing.y + existing.h + pad && y + h + pad > existing.y;
-    });
-    if (tooClose) continue;
+    const cellX = marginX + c * cellW;
+    const cellY = marginY + r * cellH;
+    const jitterInset = 60; // keep the house off the cell's own edge, away from its neighbor
+    const jitterRangeX = Math.max(0, cellW - w - jitterInset * 2);
+    const jitterRangeY = Math.max(0, cellH - h - jitterInset * 2);
+    const x = cellX + jitterInset + Math.random() * jitterRangeX;
+    const y = cellY + jitterInset + Math.random() * jitterRangeY;
 
     buildHouse(x, y, roomCount, HOUSE_STYLES[Math.floor(Math.random() * HOUSE_STYLES.length)]);
   }
 }
-placeHouses(14);
+placeHouses(32);
 
 function circleHitsRect(x, y, radius, o) {
   const closestX = Math.max(o.x, Math.min(x, o.x + o.w));
@@ -154,9 +171,12 @@ function scatterCircles(count, minR, maxR, minGap) {
   return list;
 }
 
-const ROCKS = scatterCircles(110, 12, 20, 32);
-const TREES = scatterCircles(140, 12, 16, 50);
-const BUSHES = scatterCircles(100, 10, 15, 18);
+// Counts scaled by 2.25x (matching the 50%-bigger-per-dimension map area)
+// to keep the same density — a bigger map with the old counts would just
+// feel emptier, not more interesting.
+const ROCKS = scatterCircles(248, 12, 20, 32);
+const TREES = scatterCircles(315, 12, 16, 50);
+const BUSHES = scatterCircles(225, 10, 15, 18);
 
 function circleHitsSolid(x, y, radius) {
   for (const o of OBSTACLES) if (circleHitsRect(x, y, radius, o)) return true;
@@ -191,16 +211,24 @@ const WEAPON_TYPES = ['pistol', 'shotgun', 'rifle', 'smg'];
 const CONSUMABLE_TYPES = ['health_pack', 'stamina_potion'];
 
 const WEAPON_STATS = {
-  pistol:  { damage: 14, fireRateMs: 260, bulletSpeed: 900,  spread: 0.03,  lifetimeMs: 900,  pellets: 1, bulletRadius: 3,   startAmmo: 90 },
-  smg:     { damage: 9,  fireRateMs: 90,  bulletSpeed: 950,  spread: 0.09,  lifetimeMs: 750,  pellets: 1, bulletRadius: 3,   startAmmo: 60 },
-  rifle:   { damage: 28, fireRateMs: 230, bulletSpeed: 1300, spread: 0.015, lifetimeMs: 1000, pellets: 1, bulletRadius: 3.5, startAmmo: 40 },
-  shotgun: { damage: 9,  fireRateMs: 750, bulletSpeed: 800,  spread: 0.22,  lifetimeMs: 380,  pellets: 6, bulletRadius: 3,   startAmmo: 18 },
+  pistol:  { damage: 14, fireRateMs: 260, bulletSpeed: 900,  spread: 0.03,  lifetimeMs: 900,  pellets: 1, bulletRadius: 3,   magSize: 12, reloadMs: 900,  startAmmo: 90 },
+  smg:     { damage: 9,  fireRateMs: 90,  bulletSpeed: 950,  spread: 0.09,  lifetimeMs: 750,  pellets: 1, bulletRadius: 3,   magSize: 25, reloadMs: 1400, startAmmo: 90 },
+  rifle:   { damage: 28, fireRateMs: 230, bulletSpeed: 1300, spread: 0.015, lifetimeMs: 1000, pellets: 1, bulletRadius: 3.5, magSize: 20, reloadMs: 1700, startAmmo: 80 },
+  shotgun: { damage: 9,  fireRateMs: 750, bulletSpeed: 800,  spread: 0.22,  lifetimeMs: 380,  pellets: 6, bulletRadius: 3,   magSize: 6,  reloadMs: 2200, startAmmo: 30 },
 };
-const AMMO_REFILL = { pistol: 12, smg: 20, rifle: 15, shotgun: 6 };
+const AMMO_REFILL = { pistol: 12, smg: 20, rifle: 15, shotgun: 6 }; // added to RESERVE, not the magazine directly
+
+// A fresh weapon starts with a full magazine and whatever's left over as
+// reserve — never more ammo than startAmmo actually allows.
+function freshWeaponAmmo(type) {
+  const stats = WEAPON_STATS[type];
+  const mag = Math.min(stats.magSize, stats.startAmmo);
+  return { mag, reserve: stats.startAmmo - mag };
+}
 
 function makeStartingInventory() {
   const inv = new Array(INVENTORY_SIZE).fill(null);
-  inv[0] = { type: 'pistol', ammo: WEAPON_STATS.pistol.startAmmo };
+  inv[0] = { type: 'pistol', ...freshWeaponAmmo('pistol') };
   return inv;
 }
 
@@ -215,15 +243,15 @@ function findEmptySlot(p) {
 function giveItem(p, type) {
   if (type === 'pistol_ammo') {
     const pistol = p.inventory.find((i) => i && i.type === 'pistol');
-    if (pistol) pistol.ammo += AMMO_REFILL.pistol;
+    if (pistol) pistol.reserve += AMMO_REFILL.pistol;
     return true;
   }
   if (WEAPON_TYPES.includes(type)) {
     const existing = p.inventory.find((i) => i && i.type === type);
-    if (existing) { existing.ammo += AMMO_REFILL[type]; return true; }
+    if (existing) { existing.reserve += AMMO_REFILL[type]; return true; }
     const slot = findEmptySlot(p);
     if (slot === -1) return false;
-    p.inventory[slot] = { type, ammo: WEAPON_STATS[type].startAmmo };
+    p.inventory[slot] = { type, ...freshWeaponAmmo(type) };
     return true;
   }
   if (CONSUMABLE_TYPES.includes(type)) {
@@ -313,6 +341,9 @@ function createPlayer(pending) {
     respawnAt: 0,
     aimAngle: 0,
     lastShotAt: {}, // weapon type -> timestamp of last shot with it, for independent per-weapon cooldowns
+    lastInputSeq: 0, // highest client input sequence number processed so far — lets the client know what's already reflected in x/y for reconciliation
+    reloadingUntil: 0, // 0 = not reloading; otherwise a timestamp this player's current reload finishes at
+    reloadingSlot: -1, // which inventory slot that reload applies to — switching weapons cancels it
     inventory: makeStartingInventory(),
     equipped: 0,
     keys: { up: false, down: false, left: false, right: false, sprint: false },
@@ -332,6 +363,8 @@ function resetForRound(p) {
   p.respawnAt = 0;
   p.aimAngle = 0;
   p.lastShotAt = {};
+  p.reloadingUntil = 0;
+  p.reloadingSlot = -1;
   p.inventory = makeStartingInventory();
   p.equipped = 0;
 }
@@ -342,6 +375,8 @@ function revivePlayer(p) {
   p.health = p.maxHealth;
   p.stamina = p.maxStamina;
   p.alive = true;
+  p.reloadingUntil = 0;
+  p.reloadingSlot = -1;
 }
 
 function broadcastLobby(room) {
@@ -396,14 +431,7 @@ function applyDamage(room, shooterId, targetId, damage, weaponType) {
     const shooter = room.players[shooterId];
     if (shooter && shooter !== target) shooter.kills = (shooter.kills || 0) + 1;
     broadcastKill(room, shooter, target, weaponType);
-    checkRoundEnd(room);
   }
-}
-
-function checkRoundEnd(room) {
-  if (room.phase !== 'playing') return;
-  const someoneHitTarget = Object.values(room.players).some((p) => (p.kills || 0) >= KILL_TARGET);
-  if (someoneHitTarget) endRound(room, 'killTarget');
 }
 
 function endRound(room, reason) {
@@ -422,6 +450,13 @@ function returnToLobby(room) {
   room.phase = 'lobby';
   room.bullets = [];
   Object.values(room.players).forEach((p) => { p.ready = false; });
+
+  // Anyone who joined mid-round as a spectator becomes a real, joinable
+  // party member now that a fresh round is being set up — this is exactly
+  // the moment they were waiting for.
+  room.spectators.forEach((pending, sid) => { room.players[sid] = createPlayer(pending); });
+  room.spectators.clear();
+
   broadcastLobby(room);
   const msg = JSON.stringify({ type: 'returnToLobby' });
   room.clients.forEach((c) => { if (c.readyState === WebSocket.OPEN) c.send(msg); });
@@ -437,6 +472,7 @@ function openChestForPlayer(ws, room, idx, p) {
 
 function fireWeapon(room, shooterId, p, angle) {
   if (!p.alive) return;
+  if (p.reloadingUntil && Date.now() < p.reloadingUntil) return; // hands are busy
   const item = p.inventory[p.equipped];
   if (!item) return;
   const stats = WEAPON_STATS[item.type];
@@ -445,10 +481,10 @@ function fireWeapon(room, shooterId, p, angle) {
   const now = Date.now();
   const last = p.lastShotAt[item.type] || 0;
   if (now - last < stats.fireRateMs) return;
-  if (item.ammo <= 0) return;
+  if (item.mag <= 0) return; // dry — needs a reload, server won't do it automatically
 
   p.lastShotAt[item.type] = now;
-  item.ammo -= 1;
+  item.mag -= 1;
 
   const spawnDist = PLAYER_RADIUS + 8;
   for (let i = 0; i < stats.pellets; i++) {
@@ -467,6 +503,40 @@ function fireWeapon(room, shooterId, p, angle) {
       expiresAt: now + stats.lifetimeMs,
     });
   }
+}
+
+// Starts a reload if the currently-equipped weapon is eligible (not already
+// full, has spare reserve ammo to pull from, not already reloading). The
+// actual mag refill happens later, in completeReload — the delay in
+// between is the whole point.
+function startReload(p) {
+  if (!p.alive) return;
+  const item = p.inventory[p.equipped];
+  if (!item) return;
+  const stats = WEAPON_STATS[item.type];
+  if (!stats) return; // not a weapon
+  if (p.reloadingUntil && Date.now() < p.reloadingUntil) return; // already reloading
+  if (item.mag >= stats.magSize) return; // already full
+  if (item.reserve <= 0) return; // nothing to reload with
+
+  p.reloadingUntil = Date.now() + stats.reloadMs;
+  p.reloadingSlot = p.equipped;
+}
+
+// Called every tick for every alive player — finishes any reload whose
+// timer has elapsed, actually moving ammo from reserve into the magazine.
+function completeReload(p) {
+  if (!p.reloadingUntil || Date.now() < p.reloadingUntil) return;
+  const item = p.inventory[p.reloadingSlot];
+  const stats = item && WEAPON_STATS[item.type];
+  if (item && stats) {
+    const needed = stats.magSize - item.mag;
+    const transfer = Math.min(needed, item.reserve);
+    item.mag += transfer;
+    item.reserve -= transfer;
+  }
+  p.reloadingUntil = 0;
+  p.reloadingSlot = -1;
 }
 
 let nextBulletId = 1;
@@ -503,7 +573,7 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'createRoom') {
       const code = generateRoomCode();
-      const room = { code, players: {}, clients: new Set(), phase: 'lobby', roundStartsAt: 0, roundEndsAt: 0, chestState: [], bullets: [] };
+      const room = { code, players: {}, spectators: new Map(), clients: new Set(), phase: 'lobby', roundStartsAt: 0, roundEndsAt: 0, chestState: [], bullets: [] };
       room.players[id] = createPlayer(ws.pending);
       room.clients.add(ws);
       rooms.set(code, room);
@@ -518,14 +588,29 @@ wss.on('connection', (ws) => {
       const code = typeof msg.code === 'string' ? msg.code.trim().toUpperCase() : '';
       const room = rooms.get(code);
       if (!room) { ws.send(JSON.stringify({ type: 'roomError', message: 'Room not found. Check the code and try again.' })); return; }
+
+      if (room.phase !== 'lobby') {
+        // A round is already underway — spectate instead of dropping
+        // straight into combat with no ammo/context. They'll automatically
+        // become a real player once this round ends and the lobby reopens
+        // (see returnToLobby), same as anyone who leaves mid-round and
+        // rejoins — from the server's point of view that's identical to a
+        // brand new connection joining mid-round.
+        room.spectators.set(id, ws.pending);
+        room.clients.add(ws);
+        ws.roomCode = code;
+        ws.send(JSON.stringify({ type: 'roomJoined', code, started: true, spectating: true }));
+        console.log(`[room] ${id} joined ${code} as a spectator`);
+        return;
+      }
+
       if (Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM) { ws.send(JSON.stringify({ type: 'roomError', message: 'That room is full (4/4).' })); return; }
 
       room.players[id] = createPlayer(ws.pending);
       room.clients.add(ws);
       ws.roomCode = code;
-      if (room.phase !== 'lobby') resetForRound(room.players[id]);
-      ws.send(JSON.stringify({ type: 'roomJoined', code, started: room.phase !== 'lobby' }));
-      if (room.phase === 'lobby') broadcastLobby(room);
+      ws.send(JSON.stringify({ type: 'roomJoined', code, started: false, spectating: false }));
+      broadcastLobby(room);
       console.log(`[room] ${id} joined ${code}`);
       return;
     }
@@ -549,6 +634,7 @@ wss.on('connection', (ws) => {
           sprint: !!msg.keys.sprint,
         };
         if (typeof msg.aimAngle === 'number' && isFinite(msg.aimAngle)) p.aimAngle = msg.aimAngle;
+        if (typeof msg.seq === 'number' && isFinite(msg.seq)) p.lastInputSeq = msg.seq;
       }
       return;
     }
@@ -559,6 +645,13 @@ wss.on('connection', (ws) => {
       const item = p && Number.isInteger(msg.index) && msg.index >= 0 && msg.index < p.inventory.length
         ? p.inventory[msg.index] : null;
       if (item && WEAPON_TYPES.includes(item.type)) {
+        if (p.reloadingUntil && p.reloadingSlot !== msg.index) {
+          // Switching weapons mid-reload cancels it — standard shooter
+          // convention, and simpler/fairer than letting it finish in the
+          // background for a weapon you're not even holding anymore.
+          p.reloadingUntil = 0;
+          p.reloadingSlot = -1;
+        }
         p.equipped = msg.index;
       }
       return;
@@ -575,9 +668,18 @@ wss.on('connection', (ws) => {
       const room = ws.roomCode && rooms.get(ws.roomCode);
       const p = room && room.players[id];
       if (p && Number.isInteger(msg.slot) && msg.slot > 0 && msg.slot < p.inventory.length) {
+        if (p.reloadingSlot === msg.slot) { p.reloadingUntil = 0; p.reloadingSlot = -1; }
         p.inventory[msg.slot] = null;
         if (p.equipped === msg.slot) p.equipped = 0;
       }
+      return;
+    }
+
+    if (msg.type === 'reload') {
+      const room = ws.roomCode && rooms.get(ws.roomCode);
+      const p = room && room.players[id];
+      if (!room || !p || room.phase !== 'playing') return;
+      startReload(p);
       return;
     }
 
@@ -629,13 +731,17 @@ wss.on('connection', (ws) => {
       if (!p || !p.alive) return;
       const idx = msg.chestIndex, slot = msg.slot;
       const state = room.chestState[idx];
-      if (!state || !state.opened) return;
+      if (!state || !state.opened) return; // must have been opened (by anyone) first — no taking from an unopened chest sight-unseen
       const item = state.items[slot];
       if (!item || item.taken) return;
-      const c = CHESTS[idx];
-      const dx = p.x - c.x, dy = p.y - c.y;
-      if (Math.sqrt(dx * dx + dy * dy) > INTERACT_RANGE * 1.6) return; // some leeway — they may have stepped back slightly
 
+      // No distance re-check here on purpose: opening the chest already
+      // proved proximity, and re-validating it on every individual take
+      // meant a single step while browsing the loot list silently failed
+      // the request with no feedback at all — that's what looked like
+      // "items can't be picked up." Once it's open, anyone can take from
+      // it (loot is shared, not claimed) — matches how the chest UI
+      // already works (it stays live-updating for everyone regardless).
       if (giveItem(p, item.type)) {
         item.taken = true;
       } else {
@@ -654,6 +760,7 @@ wss.on('connection', (ws) => {
     const room = ws.roomCode && rooms.get(ws.roomCode);
     if (room) {
       delete room.players[id];
+      room.spectators.delete(id);
       room.clients.delete(ws);
       if (room.clients.size === 0) {
         rooms.delete(ws.roomCode);
@@ -776,6 +883,7 @@ function tickRoom(room) {
       if (Date.now() >= p.respawnAt) revivePlayer(p);
       continue;
     }
+    completeReload(p);
     if (!frozen) movePlayer(p);
   }
 
@@ -784,12 +892,16 @@ function tickRoom(room) {
     if (Date.now() >= room.roundEndsAt) { endRound(room, 'timeUp'); return; }
   }
 
+  const acked = {};
+  for (const id in room.players) acked[id] = room.players[id].lastInputSeq || 0;
+
   const stateMsg = JSON.stringify({
     type: 'state',
     players: room.players,
     chests: room.chestState,
     bullets: room.bullets,
     roundEndsAt: room.roundEndsAt || 0,
+    acked,
   });
   room.clients.forEach((client) => { if (client.readyState === WebSocket.OPEN) client.send(stateMsg); });
 }
