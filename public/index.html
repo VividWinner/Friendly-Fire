@@ -1660,14 +1660,16 @@
   // ---- Weapon fire sound effects ----
   // These are real recorded clips, and several of them run considerably
   // longer than their weapon's fire rate (the SMG fires every 90ms but its
-  // clip is ~1.7s) — so naively playing a fresh copy on every shot would
-  // pile up dozens of overlapping tails into a muddy wall of noise during
-  // sustained fire. Instead, each *shooter's* copy of each weapon gets at
-  // most one active voice: a new shot from that same player+weapon fades
-  // the previous instance out quickly (~50ms) rather than layering on top
-  // of it, while a lone shot with nothing following it still rings out in
-  // full. Different players (or the same player's other weapon) get their
-  // own independent voice and can freely overlap — that's just a firefight.
+  // clip is ~1.7s). Each shot plays independently and fully on its own —
+  // no fading or stealing a previous instance. Instead, rapid-fire weapons
+  // get their *playback length* capped well under their own fire rate, so
+  // consecutive shots barely overlap rather than piling up long tails.
+  // (An earlier version tried to manage this by having every new shot
+  // schedule the previous one to fade and stop — but under sustained
+  // 90ms retriggering, that chain of cancel/ramp/stop calls could leave
+  // almost nothing audible until firing actually stopped, which is exactly
+  // the "SMG doesn't play unless you stop firing" bug. Simple independent,
+  // pre-truncated playback has no such chain to go wrong.)
   //
   // Every shot is also positional: quieter the farther away it was fired,
   // and panned left/right toward the direction it came from. Firing your
@@ -1675,11 +1677,12 @@
   // position is (essentially) your own position either way.
   const WEAPON_SFX_FILES = { pistol: 'pistol-shot.mp3', smg: 'smg-burst.mp3', rifle: 'rifle-shot.mp3', shotgun: 'shotgun-shot.mp3' };
   const WEAPON_SFX_GAIN = { pistol: 0.64, smg: 0.64, rifle: 0.64, shotgun: 0.64 }; // 25% quieter than the original 0.85
+  const WEAPON_SFX_MAX_DURATION = { pistol: 0.35, smg: 0.12, rifle: 0.3, shotgun: 1.3 }; // seconds — caps overlap without needing to fade/stop anything
   const HEARING_CLOSE_DIST = 150;   // full volume within this range, regardless of pan
   const HEARING_MAX_DIST = 1600;    // beyond this, a shot is inaudible — not worth even spending a voice on
   const HEARING_PAN_RANGE = 500;    // horizontal distance at which panning reaches hard left/right
   const weaponBuffers = {};
-  const weaponSfxVoices = new Map(); // "ownerId::type" -> { source, gain, panner? }
+  const activeWeaponSources = new Set(); // every currently-playing shot sound, for stopAllWeaponSfx
 
   (function loadWeaponSfx() {
     const ctx = ensureAudioCtx();
@@ -1720,18 +1723,6 @@
 
     try {
       const now = ctx.currentTime;
-      const key = ownerId + '::' + type;
-
-      const prevVoice = weaponSfxVoices.get(key);
-      if (prevVoice) {
-        try {
-          prevVoice.gain.gain.cancelScheduledValues(now);
-          prevVoice.gain.gain.setValueAtTime(prevVoice.gain.gain.value, now);
-          prevVoice.gain.gain.linearRampToValueAtTime(0.0001, now + 0.05);
-          prevVoice.source.stop(now + 0.06);
-        } catch (e) { /* may already have ended on its own — fine either way */ }
-      }
-
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       const gain = ctx.createGain();
@@ -1747,13 +1738,14 @@
       } else {
         gain.connect(ctx.destination); // very old browser — no panning, falloff still applies
       }
-      source.start(now);
 
-      const voice = { source, gain, panner };
-      weaponSfxVoices.set(key, voice);
+      const maxDuration = WEAPON_SFX_MAX_DURATION[type] || buffer.duration;
+      source.start(now, 0, Math.min(buffer.duration, maxDuration));
+
+      activeWeaponSources.add(source);
       source.onended = () => {
         try { source.disconnect(); gain.disconnect(); if (panner) panner.disconnect(); } catch (e) {}
-        if (weaponSfxVoices.get(key) === voice) weaponSfxVoices.delete(key);
+        activeWeaponSources.delete(source);
       };
     } catch (e) { /* audio not available — silently skip */ }
   }
@@ -1786,76 +1778,20 @@
   let wasAlive = true;            // used to detect the alive -> dead transition for the respawn overlay
   let lastRoundEndsAt = 0;
 
-  // ---- Client-side prediction for the local player ----
-  // Waiting for a full server round-trip before you see yourself move feels
-  // laggy, especially over real internet. Instead we move our own circle
-  // immediately based on input, matching the server's own movement rule,
-  // then reconcile against wherever the server says we actually are. The
-  // server remains the sole authority; this is just for feel.
-  const BASE_SPEED_PER_SEC = 6 * 30;   // matches server BASE_SPEED
-  const SPRINT_SPEED_PER_SEC = 10 * 30; // matches server SPRINT_SPEED
-  const SPRINT_DRAIN_PER_SEC = 1.4 * 30; // matches server SPRINT_DRAIN
-  const SPRINT_REGEN_PER_SEC = 0.6 * 30; // matches server SPRINT_REGEN
-  const EXHAUST_RECOVER_FRACTION = 0.15; // matches server's hysteresis threshold
-  let predictedX = null;
-  let predictedY = null;
-  // What's actually drawn on screen (camera, your own circle, aim origin)
-  // — chases predictedX/Y with a little lag so that even a legitimate,
-  // correctly-computed reconciliation adjustment (see below) reads as a
-  // quick smooth glide rather than an instant pop. predictedX/Y itself
-  // stays perfectly precise for anything gameplay-relevant (collision,
-  // replay math) — only the rendered position is ever smoothed.
+  // ---- Rendering the local player: no prediction, server-authoritative ----
+  // A previous version of this game predicted our own movement locally
+  // (simulating ahead of the server, then reconciling/replaying against
+  // its authoritative response) to hide network latency. That prediction
+  // was the actual source of persistent jitter — however carefully tuned,
+  // "guess now, correct later" has a fundamental gap between the guess and
+  // the correction for the client to paper over. Removing the guess
+  // entirely removes the gap: renderX/Y always just chases the server's
+  // last reported truth, smoothed so 30Hz updates don't look like visible
+  // steps, but never extrapolated ahead of it. There's nothing left that
+  // can be "wrong" and need correcting.
+  const SPRINT_SPEED_PER_SEC = 10 * 30; // matches server SPRINT_SPEED — used for the walk-bob animation's speed estimate, not for movement
   let renderX = null;
   let renderY = null;
-  let predictedStamina = null;
-  let predictedExhausted = false;
-
-  // Every input we've predicted locally but the server hasn't confirmed yet
-  // (via its 'acked' sequence number), in the order they were applied.
-  // Reconciliation replays these on top of the authoritative position
-  // instead of blending toward it — see the 'state' handler below for why.
-  let inputSeq = 0;
-  let pendingInputs = [];
-
-  // The single source of truth for "how does one step of movement work,"
-  // used identically by (a) real-time local prediction every frame and (b)
-  // replaying pending inputs on top of a fresh authoritative position after
-  // reconciliation. A previous version of this game predicted speed off of
-  // the server's last-known 'sprinting' flag, which lags behind by a full
-  // round-trip — right as you started sprinting, or changed direction while
-  // sprinting, the client would keep predicting the old speed for a beat
-  // while the server had already moved on, producing a real positional gap
-  // that then had to be visibly corrected. Deriving sprint/speed from
-  // locally-known stamina (mirroring the server's own hysteresis) removes
-  // that lag entirely — both sides reach the same conclusion about speed at
-  // the same time, because both are just applying the same rule to the same
-  // (already-known) inputs, not waiting on each other.
-  function stepMovementXY(x, y, stamina, exhausted, keys, dt) {
-    const wantsToMove = keys.up || keys.down || keys.left || keys.right;
-    let nextExhausted = exhausted;
-    if (stamina <= 0) nextExhausted = true;
-    else if (stamina >= 100 * EXHAUST_RECOVER_FRACTION) nextExhausted = false;
-
-    const sprinting = keys.sprint && !nextExhausted && stamina > 0 && wantsToMove;
-    const speed = sprinting ? SPRINT_SPEED_PER_SEC : BASE_SPEED_PER_SEC;
-    const nextStamina = sprinting
-      ? Math.max(0, stamina - SPRINT_DRAIN_PER_SEC * dt)
-      : Math.min(100, stamina + SPRINT_REGEN_PER_SEC * dt);
-
-    let newX = x;
-    if (keys.left) newX -= speed * dt;
-    if (keys.right) newX += speed * dt;
-    newX = Math.max(16, Math.min(WORLD_W - 16, newX));
-    if (circleHitsSolid(newX, y, 16)) newX = x;
-
-    let newY = y;
-    if (keys.up) newY -= speed * dt;
-    if (keys.down) newY += speed * dt;
-    newY = Math.max(16, Math.min(WORLD_H - 16, newY));
-    if (circleHitsSolid(newX, newY, 16)) newY = y;
-
-    return { x: newX, y: newY, stamina: nextStamina, exhausted: nextExhausted };
-  }
 
   function setHudStatus(state) {
     hudDot.className = state; // 'connected' | 'disconnected' | ''
@@ -1865,8 +1801,6 @@
   }
 
   function connect(afterOpen) {
-    predictedX = null;
-    predictedY = null;
     renderX = null;
     renderY = null;
     const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -1970,41 +1904,14 @@
         const me = players[myId];
         if (me) {
           const justRevived = !wasAlive && me.alive;
-          if (predictedX === null || justRevived || !me.alive) {
+          if (renderX === null || justRevived || !me.alive) {
             // First update we've seen for ourselves, we just respawned
             // somewhere new, or we're currently downed (server isn't
-            // moving us — pin the camera exactly, don't replay stale
-            // pre-death inputs into a phantom drift): snap exactly and
-            // drop anything pending, since it's no longer relevant.
-            predictedX = me.x;
-            predictedY = me.y;
-            predictedStamina = me.stamina;
-            predictedExhausted = me.exhausted;
-            pendingInputs.length = 0;
-            renderX = me.x; // a real teleport — snap the camera too, don't glide across the map
+            // moving us) — snap exactly rather than smoothing across the
+            // map or drifting away from where we died. Otherwise renderX/Y
+            // just get eased toward me.x/me.y every frame in the draw loop.
+            renderX = me.x;
             renderY = me.y;
-          } else {
-            // Discard whatever the server has now confirmed — its effect
-            // is already baked into me.x/me.y — then replay only the
-            // inputs it hasn't seen yet on top of that authoritative base.
-            // If our own prediction was already correct (the common case),
-            // this reconstructs the exact same position we already had, so
-            // nothing visibly moves. Only a genuine discrepancy (say, a
-            // collision the server resolved differently) produces a
-            // correction, and even then it's baked smoothly into the
-            // replay rather than snapping or gradually bouncing toward it.
-            const ackedSeq = (msg.acked && msg.acked[myId]) || 0;
-            while (pendingInputs.length && pendingInputs[0].seq <= ackedSeq) pendingInputs.shift();
-
-            let simX = me.x, simY = me.y, simStamina = me.stamina, simExhausted = me.exhausted;
-            for (const input of pendingInputs) {
-              const result = stepMovementXY(simX, simY, simStamina, simExhausted, input.keys, input.dt);
-              simX = result.x; simY = result.y; simStamina = result.stamina; simExhausted = result.exhausted;
-            }
-            predictedX = simX;
-            predictedY = simY;
-            predictedStamina = simStamina;
-            predictedExhausted = simExhausted;
           }
 
           if (lastKnownHealth !== null && me.health < lastKnownHealth) flashDamageVignette();
@@ -2021,8 +1928,11 @@
   }
 
   // ---- Bullets: server sends authoritative positions ~30x/sec; we advance
-  // them locally every animation frame (same dead-reckoning idea as player
-  // prediction) so fast-moving tracers don't look steppy between updates ----
+  // them locally every animation frame via simple dead-reckoning (using
+  // each bullet's known velocity) so fast-moving tracers don't look steppy
+  // between updates. Unlike player movement, this never needs correcting
+  // against the server — a bullet's velocity doesn't change mid-flight, so
+  // there's nothing to guess wrong. ----
   function syncBullets(list) {
     const seen = new Set();
     // A shotgun blast arrives as several pellets (separate bullet ids) in
@@ -2110,10 +2020,9 @@
     if (snapshot === lastSentKeys && !aimChanged) return;
     lastSentKeys = snapshot;
     lastSentAim = myAimAngle;
-    inputSeq++;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', seq: inputSeq, keys, aimAngle: myAimAngle }));
+      ws.send(JSON.stringify({ type: 'input', keys, aimAngle: myAimAngle }));
     }
   }
 
@@ -2455,48 +2364,6 @@
   // =========================================================
   let lastFrameTime = performance.now();
 
-  // Mirrors the server's own collision check exactly (walls + rocks + trees),
-  // so what you predict locally never disagrees with what the server enforces.
-  function circleHitsSolid(x, y, radius) {
-    for (const o of obstacles) {
-      const closestX = Math.max(o.x, Math.min(x, o.x + o.w));
-      const closestY = Math.max(o.y, Math.min(y, o.y + o.h));
-      const dx = x - closestX, dy = y - closestY;
-      if (dx * dx + dy * dy < radius * radius) return true;
-    }
-    for (const c of rocks) {
-      const dx = x - c.x, dy = y - c.y;
-      if (dx * dx + dy * dy < (radius + c.r) * (radius + c.r)) return true;
-    }
-    for (const t of trees) {
-      const dx = x - t.x, dy = y - t.y;
-      if (dx * dx + dy * dy < (radius + t.r) * (radius + t.r)) return true;
-    }
-    return false;
-  }
-
-  let roundFrozen = true; // true during the pre-round countdown, mirrors the server's own movement freeze
-
-  function updatePrediction(dt) {
-    if (predictedX === null || roundFrozen) return;
-    const me = players[myId];
-    if (me && me.alive === false) return; // downed — server isn't moving us either, don't drift the camera
-    if (predictedStamina === null) predictedStamina = me ? me.stamina : 100;
-
-    const keysSnapshot = { up: keys.up, down: keys.down, left: keys.left, right: keys.right, sprint: keys.sprint };
-    const result = stepMovementXY(predictedX, predictedY, predictedStamina, predictedExhausted, keysSnapshot, dt);
-    predictedX = result.x;
-    predictedY = result.y;
-    predictedStamina = result.stamina;
-    predictedExhausted = result.exhausted;
-
-    // Remember this step, tagged with whichever input sequence was most
-    // recently sent, so it can be replayed on top of a fresh authoritative
-    // position once the server acknowledges it — see the 'state' handler.
-    pendingInputs.push({ seq: inputSeq, dt, keys: keysSnapshot });
-    if (pendingInputs.length > 600) pendingInputs.shift(); // safety valve for a long connection stall — never hit in normal play
-  }
-
   // ---- Item labels/icons — the one shared lookup used by the inventory
   // bar, the chest loot modal, and the kill feed ----
   const ITEM_LABEL = {
@@ -2696,8 +2563,8 @@
     let best = Infinity;
     for (const id in players) {
       const p = players[id];
-      const x = (id === myId && predictedX !== null) ? predictedX : p.x;
-      const y = (id === myId && predictedY !== null) ? predictedY : p.y;
+      const x = (id === myId && renderX !== null) ? renderX : p.x;
+      const y = (id === myId && renderY !== null) ? renderY : p.y;
       const dx = x - doorX, dy = y - doorY;
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d < best) best = d;
@@ -3168,24 +3035,21 @@
   function draw(now) {
     const dt = Math.min((now - lastFrameTime) / 1000, 0.1); // clamp for tab-switch pauses
     lastFrameTime = now;
-    sendInput(); // cheap no-op unless aim/keys actually changed — bump the seq before predicting so this frame's step is tagged correctly
-    updatePrediction(dt);
+    sendInput(); // cheap no-op unless aim/keys actually changed since the last send
     advanceBullets(dt);
     pruneEffects();
     attemptLocalFire(now);
 
-    // Chase the (precise) predicted position for what's actually drawn.
-    // During ordinary movement this tracks almost exactly — predictedX/Y
-    // itself already moves smoothly every frame — so the only time this
-    // visibly does anything is smoothing out a rare reconciliation
-    // adjustment into a quick glide instead of a pop.
-    if (predictedX !== null) {
-      if (renderX === null) { renderX = predictedX; renderY = predictedY; }
-      else {
-        const chase = Math.min(1, dt / 0.05); // close ~any gap within ~50ms
-        renderX += (predictedX - renderX) * chase;
-        renderY += (predictedY - renderY) * chase;
-      }
+    // Smooth our own position toward wherever the server last said we
+    // actually are — never guessing ahead, just easing the visible step
+    // between 30Hz state updates into something fluid. If we're currently
+    // downed, renderX/Y is already pinned exactly by the state handler and
+    // there's nothing to chase (me.alive is false, so this is skipped).
+    const me = players[myId];
+    if (me && me.alive && renderX !== null) {
+      const chase = Math.min(1, dt / 0.08); // close ~any gap within ~80ms
+      renderX += (me.x - renderX) * chase;
+      renderY += (me.y - renderY) * chase;
     }
 
     const dpr = window.devicePixelRatio || 1;
@@ -3502,21 +3366,10 @@
   // Menu -> Game transition (called once the round actually starts)
   // =========================================================
   function stopAllWeaponSfx() {
-    const ctx = sfxAudioCtx;
-    weaponSfxVoices.forEach((voice) => {
-      try {
-        if (ctx) {
-          const now = ctx.currentTime;
-          voice.gain.gain.cancelScheduledValues(now);
-          voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
-          voice.gain.gain.linearRampToValueAtTime(0.0001, now + 0.08);
-          voice.source.stop(now + 0.09);
-        } else {
-          voice.source.stop();
-        }
-      } catch (e) { /* already stopped/ended — fine either way */ }
+    activeWeaponSources.forEach((source) => {
+      try { source.stop(); } catch (e) { /* already stopped/ended — fine either way */ }
     });
-    weaponSfxVoices.clear();
+    activeWeaponSources.clear();
   }
 
   function resetPerRoundUIState() {
@@ -3545,8 +3398,6 @@
     isSpectating = true;
     spectateTargetId = null;
     resetPerRoundUIState();
-    predictedX = null;
-    predictedY = null;
     renderX = null;
     renderY = null;
 
@@ -3599,14 +3450,8 @@
   function enterGame(countdownMs, alreadyInProgress) {
     isSpectating = false;
     resetPerRoundUIState();
-    roundFrozen = !alreadyInProgress; // a round already in progress has nothing to freeze for
-    predictedX = null; // fresh round = a fresh spawn point, often far from where we were — snap, don't slide there
-    predictedY = null;
-    renderX = null;
+    renderX = null; // fresh round = a fresh spawn point, often far from where we were — snap, don't slide there
     renderY = null;
-    predictedStamina = null;
-    predictedExhausted = false;
-    pendingInputs.length = 0;
     gameScreen.classList.add('active'); // now display:flex, still opacity:0
     resizeCanvas();
     pauseBtn.hidden = false;
@@ -3639,15 +3484,13 @@
   }
 
   // "3... 2... 1... GO!" with a beep on each number. The server enforces
-  // the actual movement freeze independently, timed from the same
-  // countdownMs — this just matches it visually and lifts our own
-  // client-side prediction freeze at the same moment.
+  // the actual movement freeze independently — this is just the matching
+  // on-screen presentation.
   function runCountdown(totalMs) {
     const overlay = document.getElementById('countdown-overlay');
     const numberEl = document.getElementById('countdown-number');
     const wholeSeconds = Math.round(totalMs / 1000);
     overlay.classList.add('visible');
-    setTimeout(() => { roundFrozen = false; }, totalMs);
 
     function showTick(secondsLeft) {
       if (secondsLeft <= 0) {

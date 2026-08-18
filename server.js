@@ -341,7 +341,6 @@ function createPlayer(pending) {
     respawnAt: 0,
     aimAngle: 0,
     lastShotAt: {}, // weapon type -> timestamp of last shot with it, for independent per-weapon cooldowns
-    lastInputSeq: 0, // highest client input sequence number processed so far — lets the client know what's already reflected in x/y for reconciliation
     reloadingUntil: 0, // 0 = not reloading; otherwise a timestamp this player's current reload finishes at
     reloadingSlot: -1, // which inventory slot that reload applies to — switching weapons cancels it
     inventory: makeStartingInventory(),
@@ -634,7 +633,6 @@ wss.on('connection', (ws) => {
           sprint: !!msg.keys.sprint,
         };
         if (typeof msg.aimAngle === 'number' && isFinite(msg.aimAngle)) p.aimAngle = msg.aimAngle;
-        if (typeof msg.seq === 'number' && isFinite(msg.seq)) p.lastInputSeq = msg.seq;
       }
       return;
     }
@@ -892,16 +890,12 @@ function tickRoom(room) {
     if (Date.now() >= room.roundEndsAt) { endRound(room, 'timeUp'); return; }
   }
 
-  const acked = {};
-  for (const id in room.players) acked[id] = room.players[id].lastInputSeq || 0;
-
   const stateMsg = JSON.stringify({
     type: 'state',
     players: room.players,
     chests: room.chestState,
     bullets: room.bullets,
     roundEndsAt: room.roundEndsAt || 0,
-    acked,
   });
   room.clients.forEach((client) => { if (client.readyState === WebSocket.OPEN) client.send(stateMsg); });
 }
