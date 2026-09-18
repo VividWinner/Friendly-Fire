@@ -661,6 +661,164 @@
   }
 
   /* ---- Kill feed (top-right, in-game) ---- */
+  /* ---- Armor bar (third stat bar, cyan, only visible when you have any) ---- */
+  #armor-track { opacity: 0; transition: opacity 0.2s ease; }
+  #armor-track.has-armor { opacity: 1; }
+  #armor-fill { background: linear-gradient(90deg, #4fb8dd, #9fe8ff); }
+
+  /* ---- Round timer ---- */
+  #round-timer {
+    position: fixed;
+    top: calc(var(--stripe-size) + 12px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 22;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 30px;
+    letter-spacing: 3px;
+    color: var(--paper);
+    background: rgba(18,20,28,0.6);
+    backdrop-filter: blur(6px);
+    padding: 4px 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(238,241,246,0.15);
+  }
+  #round-timer.urgent {
+    color: var(--impact);
+    border-color: var(--impact);
+    animation: timerPulse 1s ease-in-out infinite;
+  }
+  @keyframes timerPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+  /* ---- Adrenaline indicator ---- */
+  #adrenaline-indicator {
+    position: fixed;
+    top: calc(var(--stripe-size) + 56px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 22;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--blackout);
+    background: var(--warning);
+    padding: 5px 14px;
+    border-radius: 4px;
+    animation: adrenPulse 0.7s ease-in-out infinite;
+  }
+  @keyframes adrenPulse { 0%,100% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.06); } }
+
+  /* ---- Hitmarker: four short strokes around the crosshair ---- */
+  #hitmarker {
+    position: fixed;
+    left: 50%; top: 50%;
+    width: 26px; height: 26px;
+    margin: -13px 0 0 -13px;
+    z-index: 30;
+    pointer-events: none;
+    opacity: 0;
+  }
+  #hitmarker span {
+    position: absolute;
+    width: 9px; height: 2.5px;
+    background: var(--paper);
+    box-shadow: 0 0 3px rgba(0,0,0,0.8);
+  }
+  #hitmarker span:nth-child(1) { top: 3px;  left: 1px;  transform: rotate(45deg); }
+  #hitmarker span:nth-child(2) { top: 3px;  right: 1px; transform: rotate(-45deg); }
+  #hitmarker span:nth-child(3) { bottom: 3px; left: 1px;  transform: rotate(-45deg); }
+  #hitmarker span:nth-child(4) { bottom: 3px; right: 1px; transform: rotate(45deg); }
+  #hitmarker.show { animation: hitmarkerPop 0.22s ease-out; }
+  #hitmarker.kill span { background: var(--impact); width: 11px; height: 3px; }
+  #hitmarker.kill { animation: hitmarkerPop 0.36s ease-out; }
+  @keyframes hitmarkerPop {
+    0%   { opacity: 0; transform: scale(1.5); }
+    18%  { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+  @media (pointer: coarse) { #hitmarker { display: none; } }
+
+  /* ---- Killstreak / multi-kill banner ---- */
+  #streak-banner {
+    position: fixed;
+    top: 22%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 40;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 44px;
+    letter-spacing: 4px;
+    color: var(--warning);
+    text-shadow: 0 0 22px rgba(244,196,48,0.65), 0 3px 8px rgba(0,0,0,0.8);
+    pointer-events: none;
+    opacity: 0;
+    white-space: nowrap;
+  }
+  #streak-banner.show { animation: streakPop 1.5s ease-out; }
+  @keyframes streakPop {
+    0%   { opacity: 0; transform: translateX(-50%) scale(0.7); }
+    12%  { opacity: 1; transform: translateX(-50%) scale(1.12); }
+    24%  { transform: translateX(-50%) scale(1); }
+    75%  { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) scale(1); }
+  }
+
+  /* ---- Live scoreboard (hold TAB) ---- */
+  #scoreboard {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.96);
+    z-index: 60;
+    width: 340px;
+    background: rgba(18,20,28,0.93);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(238,241,246,0.18);
+    border-radius: 8px;
+    padding: 18px;
+    display: none;
+  }
+  #scoreboard.visible { display: block; }
+  #scoreboard-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 3px;
+    color: var(--warning);
+    text-align: center;
+    margin: 0 0 12px;
+  }
+  #scoreboard-rows { display: flex; flex-direction: column; gap: 6px; }
+  .sb-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: rgba(238,241,246,0.05);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+  }
+  .sb-row.is-me { background: rgba(244,196,48,0.12); border: 1px solid rgba(244,196,48,0.4); }
+  .sb-row .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .sb-row .nm { flex: 1; color: var(--paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sb-row .kd { color: var(--smoke); letter-spacing: 1px; }
+  .sb-row .stk { color: var(--warning); min-width: 34px; text-align: right; }
+  .sb-row.dead .nm { opacity: 0.45; }
+  #scoreboard-hint {
+    margin: 12px 0 0;
+    text-align: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--smoke);
+  }
+
+  /* ---- Loot rarity colours ---- */
+  .rarity-common   { color: #b9c0cc; }
+  .rarity-uncommon { color: #5fd18a; }
+  .rarity-rare     { color: #5aa9f0; }
+  .chest-item-row.rarity-border-uncommon { border-color: rgba(95,209,138,0.55); }
+  .chest-item-row.rarity-border-rare     { border-color: rgba(90,169,240,0.6); box-shadow: 0 0 12px rgba(90,169,240,0.18); }
+
   #kill-feed {
     position: fixed;
     top: calc(var(--stripe-size) + 14px);
@@ -1425,6 +1583,23 @@
   <div id="hud-stats" hidden>
     <div class="stat-bar-track"><div class="stat-bar-fill" id="health-fill"></div></div>
     <div class="stat-bar-track"><div class="stat-bar-fill" id="stamina-fill"></div></div>
+    <div class="stat-bar-track" id="armor-track"><div class="stat-bar-fill" id="armor-fill"></div></div>
+  </div>
+
+  <div id="round-timer" hidden>5:00</div>
+  <div id="adrenaline-indicator" hidden>⚡ ADRENALINE</div>
+
+  <!-- Crosshair hitmarker: flashes when one of YOUR shots lands -->
+  <div id="hitmarker"><span></span><span></span><span></span><span></span></div>
+
+  <!-- Killstreak / multi-kill banner -->
+  <div id="streak-banner"></div>
+
+  <!-- Live scoreboard (hold TAB) -->
+  <div id="scoreboard">
+    <p id="scoreboard-title">SCOREBOARD</p>
+    <div id="scoreboard-rows"></div>
+    <p id="scoreboard-hint">Hold TAB</p>
   </div>
 
   <div id="ammo-readout" hidden>
@@ -1532,6 +1707,14 @@
   const ammoReadout = document.getElementById('ammo-readout');
   const ammoReadoutText = document.getElementById('ammo-readout-text');
   const reloadProgressFill = document.getElementById('reload-progress-fill');
+  const armorTrack = document.getElementById('armor-track');
+  const armorFill = document.getElementById('armor-fill');
+  const roundTimerEl = document.getElementById('round-timer');
+  const adrenalineIndicator = document.getElementById('adrenaline-indicator');
+  const hitmarkerEl = document.getElementById('hitmarker');
+  const streakBanner = document.getElementById('streak-banner');
+  const scoreboardEl = document.getElementById('scoreboard');
+  const scoreboardRows = document.getElementById('scoreboard-rows');
   const roundOverOverlay = document.getElementById('round-over-overlay');
   const roundOverReason = document.getElementById('round-over-reason');
   const roundOverScores = document.getElementById('round-over-scores');
@@ -1761,6 +1944,11 @@
   let rocks = [];
   let trees = [];
   let bushes = [];
+  let cover = [];        // crates/barrels — solid cover out in the open field
+  let ponds = [];        // decorative water, walk-through
+  let campfires = [];    // animated flame + warm light pool
+  let lamps = [];        // lamp posts with a light pool
+  let paths = [];        // dirt tracks linking houses into a village road network
   let chests = [];       // static positions from world payload
   let chestState = [];   // dynamic opened/loot state from each 'state' broadcast
   let prevChestState = [];
@@ -1828,6 +2016,11 @@
         rocks = msg.world.rocks || [];
         trees = msg.world.trees || [];
         bushes = msg.world.bushes || [];
+        cover = msg.world.cover || [];
+        ponds = msg.world.ponds || [];
+        campfires = msg.world.campfires || [];
+        lamps = msg.world.lamps || [];
+        paths = msg.world.paths || [];
         chests = msg.world.chests || [];
       }
 
@@ -1875,6 +2068,7 @@
 
       if (msg.type === 'kill') {
         pushKillFeed(msg);
+        maybeShowStreakBanner(msg);
       }
 
       if (msg.type === 'roundOver') {
@@ -1892,6 +2086,7 @@
         lastRoundEndsAt = msg.roundEndsAt || 0;
         detectChestChanges();
         syncBullets(msg.bullets || []);
+        handleDamageEvents(msg.damageEvents || []);
         if (chestModalIndex !== null) renderChestModal(); // keep it live if someone else loots from it too
 
         if (playerAnimState.size > Object.keys(players).length) {
@@ -1900,6 +2095,7 @@
         }
 
         if (isSpectating) pickSpectateTarget();
+        if (scoreboardOpen) renderScoreboard();
 
         const me = players[myId];
         if (me) {
@@ -1961,6 +2157,11 @@
     newShots.forEach((s) => {
       playWeaponSfx(s.ownerId, s.type, s.x, s.y);
       recoilKick.set(s.ownerId, performance.now());
+      const shooter = players[s.ownerId];
+      if (shooter) spawnShellCasing(shooter.x, shooter.y, shooter.aimAngle || 0);
+      // Only your own gun shakes the camera — everyone else's would make a
+      // 4-player firefight unplayable.
+      if (s.ownerId === myId) addScreenShake(WEAPON_SHAKE[s.type] || 2.5);
     });
   }
 
@@ -1981,6 +2182,324 @@
     const now = performance.now();
     if (muzzleFlashes.length) muzzleFlashes = muzzleFlashes.filter((f) => f.expiresAt > now);
     if (impactSparks.length) impactSparks = impactSparks.filter((s) => s.expiresAt > now);
+  }
+
+  // =========================================================
+  // Particles, decals, damage numbers and screen shake.
+  // All of this is local and purely cosmetic — the server never sees it —
+  // but it's most of what separates "circles exchanging numbers" from
+  // something that feels good to play.
+  // =========================================================
+  let particles = [];      // {x,y,vx,vy,life,maxLife,size,color,gravity,fade,shrink}
+  let groundDecals = [];   // {x,y,r,color,expiresAt,maxLife} — blood/scorch that linger
+  let damageNumbers = [];  // {x,y,vy,text,life,maxLife,color,size}
+  const MAX_PARTICLES = 420;   // hard ceiling so a big firefight can't tank the framerate
+  const MAX_DECALS = 90;
+
+  function spawnParticle(p) {
+    if (particles.length >= MAX_PARTICLES) particles.shift(); // drop oldest rather than refuse newest
+    particles.push(p);
+  }
+
+  function burst(x, y, count, opts) {
+    const o = opts || {};
+    for (let i = 0; i < count; i++) {
+      const a = o.angle !== undefined
+        ? o.angle + (Math.random() - 0.5) * (o.spread || Math.PI * 2)
+        : Math.random() * Math.PI * 2;
+      const spd = (o.minSpeed || 40) + Math.random() * ((o.maxSpeed || 180) - (o.minSpeed || 40));
+      const life = (o.minLife || 0.25) + Math.random() * ((o.maxLife || 0.6) - (o.minLife || 0.25));
+      spawnParticle({
+        x, y,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd,
+        life, maxLife: life,
+        size: (o.minSize || 2) + Math.random() * ((o.maxSize || 4) - (o.minSize || 2)),
+        color: Array.isArray(o.colors) ? o.colors[Math.floor(Math.random() * o.colors.length)] : (o.color || '#fff'),
+        drag: o.drag !== undefined ? o.drag : 3,
+        shrink: o.shrink !== undefined ? o.shrink : true,
+      });
+    }
+  }
+
+  function addDecal(x, y, r, color, lifeMs) {
+    if (groundDecals.length >= MAX_DECALS) groundDecals.shift();
+    groundDecals.push({ x, y, r, color, expiresAt: performance.now() + lifeMs, maxLife: lifeMs });
+  }
+
+  // Blood spray in the direction the shot was travelling, plus a lingering
+  // stain — so you can read where a fight happened after the fact.
+  function spawnBloodHit(x, y, angle, heavy) {
+    burst(x, y, heavy ? 16 : 7, {
+      angle, spread: Math.PI * 0.7,
+      minSpeed: 60, maxSpeed: heavy ? 320 : 180,
+      minSize: 2, maxSize: heavy ? 5 : 3.5,
+      minLife: 0.25, maxLife: heavy ? 0.7 : 0.45,
+      colors: ['#c0392b', '#e74c3c', '#8e2b20'],
+    });
+    if (textureQuality !== 'low') addDecal(x, y, heavy ? 22 : 11, 'rgba(120,25,20,0.5)', heavy ? 12000 : 7000);
+  }
+
+  function spawnArmorHit(x, y, angle) {
+    burst(x, y, 9, {
+      angle, spread: Math.PI * 0.8,
+      minSpeed: 90, maxSpeed: 260,
+      minSize: 1.5, maxSize: 3,
+      minLife: 0.15, maxLife: 0.35,
+      colors: ['#9fe8ff', '#5ec8f0', '#ffffff'],
+    });
+  }
+
+  // Ejected brass — small, arcs away from the gun, catches the light.
+  function spawnShellCasing(x, y, facing) {
+    const a = facing + Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+    spawnParticle({
+      x: x + Math.cos(facing) * 10, y: y + Math.sin(facing) * 10,
+      vx: Math.cos(a) * (70 + Math.random() * 60),
+      vy: Math.sin(a) * (70 + Math.random() * 60),
+      life: 0.55, maxLife: 0.55,
+      size: 2.4, color: '#d8b24a', drag: 5, shrink: false,
+    });
+  }
+
+  function spawnDeathBurst(x, y, color) {
+    burst(x, y, 26, {
+      minSpeed: 60, maxSpeed: 300,
+      minSize: 2.5, maxSize: 6,
+      minLife: 0.4, maxLife: 0.9,
+      colors: [color, '#c0392b', '#ffffff'],
+    });
+    addDecal(x, y, 30, 'rgba(110,20,18,0.5)', 15000);
+  }
+
+  function spawnFootstepDust(x, y) {
+    burst(x, y + 12, 2, {
+      minSpeed: 8, maxSpeed: 30,
+      minSize: 2, maxSize: 4,
+      minLife: 0.25, maxLife: 0.5,
+      colors: ['rgba(190,180,150,0.55)', 'rgba(160,155,130,0.45)'],
+    });
+  }
+
+  function updateAndDrawParticles(dt) {
+    if (!particles.length) return;
+    const alive = [];
+    for (const p of particles) {
+      p.life -= dt;
+      if (p.life <= 0) continue;
+      const drag = Math.max(0, 1 - p.drag * dt);
+      p.vx *= drag;
+      p.vy *= drag;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      const t = p.life / p.maxLife;
+      ctx.globalAlpha = Math.max(0, Math.min(1, t));
+      ctx.fillStyle = p.color;
+      const s = p.shrink ? p.size * t : p.size;
+      ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+      alive.push(p);
+    }
+    ctx.globalAlpha = 1;
+    particles = alive;
+  }
+  function drawParticles(dt) { updateAndDrawParticles(dt); }
+
+  function drawGroundDecals() {
+    if (!groundDecals.length) return;
+    const now = performance.now();
+    const alive = [];
+    for (const d of groundDecals) {
+      const remaining = d.expiresAt - now;
+      if (remaining <= 0) continue;
+      // Fade out over the final third of their life so they don't just vanish.
+      const fade = Math.min(1, remaining / (d.maxLife * 0.34));
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = d.color;
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, d.r, d.r * 0.62, 0, 0, Math.PI * 2);
+      ctx.fill();
+      alive.push(d);
+    }
+    ctx.globalAlpha = 1;
+    groundDecals = alive;
+  }
+
+  function spawnDamageNumber(x, y, amount, isArmor, isKill) {
+    damageNumbers.push({
+      x: x + (Math.random() - 0.5) * 14,
+      y,
+      vy: -46,
+      text: isKill ? 'KILL' : String(Math.round(amount)),
+      life: isKill ? 1.1 : 0.85,
+      maxLife: isKill ? 1.1 : 0.85,
+      color: isKill ? '#f4c430' : (isArmor ? '#7fd6f5' : '#ffffff'),
+      size: isKill ? 22 : (amount >= 30 ? 20 : amount >= 15 ? 17 : 14),
+    });
+  }
+
+  function drawDamageNumbers(dt) {
+    if (!damageNumbers.length) return;
+    const alive = [];
+    ctx.textAlign = 'center';
+    for (const d of damageNumbers) {
+      d.life -= dt;
+      if (d.life <= 0) continue;
+      d.y += d.vy * dt;
+      d.vy += 52 * dt; // arcs up then settles
+      const t = d.life / d.maxLife;
+      ctx.globalAlpha = Math.min(1, t * 1.6);
+      ctx.font = `bold ${d.size}px 'Bebas Neue', sans-serif`;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+      ctx.strokeText(d.text, d.x, d.y);
+      ctx.fillStyle = d.color;
+      ctx.fillText(d.text, d.x, d.y);
+      alive.push(d);
+    }
+    ctx.globalAlpha = 1;
+    damageNumbers = alive;
+  }
+
+  // Turns the server's authoritative hit reports into everything the player
+  // actually perceives: spray, numbers, hitmarkers and shake. Done here (not
+  // guessed at fire time) so what you see always matches what really landed.
+  function handleDamageEvents(events) {
+    for (const ev of events) {
+      const target = players[ev.targetId];
+      const angle = target ? Math.atan2(ev.y - target.y, ev.x - target.x) : 0;
+
+      if (ev.armor) spawnArmorHit(ev.x, ev.y, angle);
+      else spawnBloodHit(ev.x, ev.y, angle, ev.amount >= 28);
+
+      if (ev.killed && target) spawnDeathBurst(target.x, target.y, target.color);
+
+      // Only show numbers for damage *you* dealt — everyone's numbers at
+      // once would be unreadable noise in a 4-player fight.
+      if (ev.shooterId === myId) {
+        spawnDamageNumber(ev.x, ev.y, ev.amount, ev.armor, ev.killed);
+        triggerHitmarker(ev.killed);
+        playHitmarkerSound(ev.killed);
+      }
+      if (ev.targetId === myId) {
+        // Getting hit shakes harder than landing one, and scales with how
+        // badly it hurt.
+        addScreenShake(ev.killed ? 16 : Math.min(11, 3 + ev.amount * 0.22));
+      } else if (ev.shooterId === myId && ev.killed) {
+        addScreenShake(6);
+      }
+    }
+  }
+
+  // ---- Hitmarker: the single most important piece of shooting feedback.
+  // Confirms a hit landed without needing to read the target's health bar.
+  let hitmarkerTimeout = null;
+  function triggerHitmarker(isKill) {
+    hitmarkerEl.classList.remove('show', 'kill');
+    void hitmarkerEl.offsetWidth; // restart the animation even on rapid consecutive hits
+    hitmarkerEl.classList.add('show');
+    if (isKill) hitmarkerEl.classList.add('kill');
+    if (hitmarkerTimeout) clearTimeout(hitmarkerTimeout);
+    hitmarkerTimeout = setTimeout(() => hitmarkerEl.classList.remove('show', 'kill'), isKill ? 380 : 240);
+  }
+  function playHitmarkerSound(isKill) {
+    if (isKill) { playBeep(880, 0.07, 0.22); setTimeout(() => playBeep(1320, 0.12, 0.2), 70); }
+    else playBeep(1500, 0.035, 0.13);
+  }
+
+  // ---- Killstreak / multi-kill banner ----
+  const MULTI_KILL_LABEL = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'QUAD KILL', 5: 'RAMPAGE' };
+  const STREAK_LABEL = { 3: 'KILLING SPREE', 5: 'UNSTOPPABLE', 7: 'DOMINATING', 10: 'LEGENDARY' };
+  let streakBannerTimeout = null;
+
+  function showStreakBanner(text) {
+    streakBanner.textContent = text;
+    streakBanner.classList.remove('show');
+    void streakBanner.offsetWidth;
+    streakBanner.classList.add('show');
+    if (streakBannerTimeout) clearTimeout(streakBannerTimeout);
+    streakBannerTimeout = setTimeout(() => streakBanner.classList.remove('show'), 1550);
+    playBeep(520, 0.1, 0.25);
+    setTimeout(() => playBeep(780, 0.16, 0.25), 90);
+  }
+
+  // A multi-kill (fast consecutive kills) outranks a streak milestone —
+  // showing both at once would just fight for the same screen space.
+  function maybeShowStreakBanner(msg) {
+    if (msg.killerId !== myId) return;
+    const multiLabel = MULTI_KILL_LABEL[msg.multi];
+    if (multiLabel) { showStreakBanner(multiLabel); return; }
+    const streakLabel = STREAK_LABEL[msg.streak];
+    if (streakLabel) showStreakBanner(streakLabel);
+  }
+
+  // ---- Round timer ----
+  function updateRoundTimer() {
+    if (!lastRoundEndsAt) { roundTimerEl.hidden = true; return; }
+    const msLeft = Math.max(0, lastRoundEndsAt - Date.now());
+    const totalSec = Math.ceil(msLeft / 1000);
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    roundTimerEl.hidden = false;
+    roundTimerEl.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+    roundTimerEl.classList.toggle('urgent', msLeft <= 30000);
+  }
+
+  // ---- Live scoreboard (hold TAB) ----
+  let scoreboardOpen = false;
+  function renderScoreboard() {
+    if (!scoreboardOpen) return;
+    const rows = Object.entries(players)
+      .map(([id, p]) => ({ id, p }))
+      .sort((a, b) => (b.p.kills || 0) - (a.p.kills || 0) || (a.p.deaths || 0) - (b.p.deaths || 0));
+
+    scoreboardRows.innerHTML = '';
+    rows.forEach(({ id, p }) => {
+      const row = document.createElement('div');
+      row.className = 'sb-row' + (id === myId ? ' is-me' : '') + (p.alive === false ? ' dead' : '');
+
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = p.color;
+
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = p.name;
+
+      const kd = document.createElement('span');
+      kd.className = 'kd';
+      kd.textContent = `${p.kills || 0}K / ${p.deaths || 0}D`;
+
+      const stk = document.createElement('span');
+      stk.className = 'stk';
+      stk.textContent = (p.streak || 0) >= 2 ? `🔥${p.streak}` : '';
+
+      row.append(dot, nm, kd, stk);
+      scoreboardRows.appendChild(row);
+    });
+  }
+
+  function setScoreboardOpen(open) {
+    if (scoreboardOpen === open) return;
+    scoreboardOpen = open;
+    scoreboardEl.classList.toggle('visible', open);
+    if (open) renderScoreboard();
+  }
+
+  // ---- Screen shake ----
+  let shakeAmount = 0;
+  function addScreenShake(amount) {
+    // Take the strongest active shake rather than summing, so a burst of
+    // hits doesn't stack into something nauseating.
+    shakeAmount = Math.min(18, Math.max(shakeAmount, amount));
+  }
+  function updateScreenShake(dt) {
+    if (shakeAmount <= 0.05) { shakeAmount = 0; return { x: 0, y: 0 }; }
+    const offset = {
+      x: (Math.random() - 0.5) * shakeAmount,
+      y: (Math.random() - 0.5) * shakeAmount,
+    };
+    shakeAmount *= Math.max(0, 1 - 9 * dt); // decays fast — a punch, not a wobble
+    return offset;
   }
 
   // =========================================================
@@ -2051,8 +2570,12 @@
   // Client-side mirror of each weapon's fire rate, used only to throttle
   // how often we ASK to fire — the server re-validates ammo/cooldown itself
   // and is the only thing that actually spawns a bullet.
-  const WEAPON_FIRE_RATE = { pistol: 260, smg: 90, rifle: 230, shotgun: 750 };
-  const WEAPON_RELOAD_MS = { pistol: 900, smg: 1400, rifle: 1700, shotgun: 2200 };
+  // These MUST match WEAPON_STATS on the server: too slow here silently caps
+  // your real DPS below what the server would allow.
+  const WEAPON_FIRE_RATE = { pistol: 240, smg: 85, rifle: 430, shotgun: 700 };
+  const WEAPON_RELOAD_MS = { pistol: 850, smg: 1500, rifle: 1800, shotgun: 2100 };
+  // How hard your own gun kicks the camera — heavier weapons hit harder.
+  const WEAPON_SHAKE = { pistol: 2.2, smg: 1.4, rifle: 5.5, shotgun: 7.5 };
   let lastLocalShotAt = {};
 
   function attemptLocalFire(nowMs) {
@@ -2074,9 +2597,16 @@
     if (setKey(e.code, true)) sendInput();
     if (e.code === 'KeyE' && !e.repeat) sendInteract();
     if (e.code === 'KeyR' && !e.repeat) sendReload();
+    if (e.code === 'Tab') { e.preventDefault(); setScoreboardOpen(true); }
     if (e.code >= 'Digit1' && e.code <= 'Digit9') sendEquip(parseInt(e.code.slice(-1), 10) - 1);
   });
-  window.addEventListener('keyup', (e) => { if (setKey(e.code, false)) sendInput(); });
+  window.addEventListener('keyup', (e) => {
+    if (setKey(e.code, false)) sendInput();
+    if (e.code === 'Tab') { e.preventDefault(); setScoreboardOpen(false); }
+  });
+  // Releasing TAB while the window isn't focused never fires keyup, which
+  // would leave the scoreboard stuck open — close it on blur as a backstop.
+  window.addEventListener('blur', () => setScoreboardOpen(false));
 
   function setKey(code, value) {
     switch (code) {
@@ -2369,10 +2899,19 @@
   const ITEM_LABEL = {
     pistol_ammo: 'Pistol Ammo', shotgun: 'Shotgun', rifle: 'Rifle', smg: 'SMG',
     health_pack: 'Health Pack', stamina_potion: 'Stamina Potion',
+    armor_plate: 'Armor Plate', adrenaline: 'Adrenaline',
   };
   const ITEM_ICON = {
     pistol: '🔫', shotgun: '💥', rifle: '🎯', smg: '🔧',
-    pistol_ammo: '🧰', health_pack: '🩹', stamina_potion: '⚡',
+    pistol_ammo: '🧰', health_pack: '🩹', stamina_potion: '🧪',
+    armor_plate: '🛡️', adrenaline: '⚡',
+  };
+  // Mirrors the server's rarity assignment — used purely to colour-code the
+  // loot list so "worth the detour?" is answerable at a glance.
+  const ITEM_RARITY_CLIENT = {
+    pistol_ammo: 'common', stamina_potion: 'common',
+    health_pack: 'uncommon', armor_plate: 'uncommon', adrenaline: 'uncommon',
+    smg: 'rare', shotgun: 'rare', rifle: 'rare',
   };
 
   function playPickupSound() { playBeep(600, 0.06, 0.22); setTimeout(() => playBeep(900, 0.08, 0.2), 70); }
@@ -2444,6 +2983,240 @@
   function drawGrass(camX, camY) {
     ctx.fillStyle = textureQuality === 'low' ? '#2f6b2f' : (grassPattern || '#2f6b2f');
     ctx.fillRect(camX, camY, viewportW, viewportH);
+
+    // Deterministic grass tufts + colour patches, generated from the grid
+    // cell's own coordinates rather than stored — so it costs no memory and
+    // never "swims" as the camera moves (the same cell always looks the same).
+    if (textureQuality === 'low') return;
+    const CELL = 140;
+    const startX = Math.floor(camX / CELL) * CELL;
+    const startY = Math.floor(camY / CELL) * CELL;
+    for (let gx = startX; gx < camX + viewportW + CELL; gx += CELL) {
+      for (let gy = startY; gy < camY + viewportH + CELL; gy += CELL) {
+        const h = Math.sin(gx * 12.9898 + gy * 78.233) * 43758.5453;
+        const rnd = h - Math.floor(h);
+        const rnd2 = (Math.sin(gx * 39.3468 + gy * 11.135) * 24634.6345) % 1;
+
+        // Soft darker patch — breaks up flat green
+        ctx.fillStyle = rnd > 0.5 ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.025)';
+        ctx.beginPath();
+        ctx.ellipse(gx + rnd * CELL, gy + Math.abs(rnd2) * CELL, 46 + rnd * 40, 30 + rnd * 26, rnd * 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (textureQuality === 'high' || textureQuality === 'ultra') {
+          // A few blades of grass per cell
+          ctx.strokeStyle = 'rgba(120,180,110,0.4)';
+          ctx.lineWidth = 1.5;
+          const tufts = textureQuality === 'ultra' ? 4 : 2;
+          for (let i = 0; i < tufts; i++) {
+            const tx = gx + ((rnd * 997 + i * 263) % CELL);
+            const ty = gy + ((Math.abs(rnd2) * 811 + i * 421) % CELL);
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(tx + 2, ty - 7);
+            ctx.moveTo(tx + 4, ty);
+            ctx.lineTo(tx + 4, ty - 6);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+  }
+
+  // Dirt tracks between houses — drawn under everything else so props and
+  // players sit on top of them.
+  function drawPaths() {
+    if (textureQuality === 'low') return;
+    ctx.strokeStyle = 'rgba(122,101,71,0.5)';
+    ctx.lineWidth = 34;
+    ctx.lineCap = 'round';
+    paths.forEach((p) => {
+      ctx.beginPath();
+      ctx.moveTo(p.x1, p.y1);
+      ctx.lineTo(p.x2, p.y2);
+      ctx.stroke();
+    });
+    if (textureQuality === 'ultra') {
+      ctx.strokeStyle = 'rgba(146,124,92,0.45)';
+      ctx.lineWidth = 20;
+      paths.forEach((p) => {
+        ctx.beginPath();
+        ctx.moveTo(p.x1, p.y1);
+        ctx.lineTo(p.x2, p.y2);
+        ctx.stroke();
+      });
+    }
+    ctx.lineCap = 'butt';
+  }
+
+  // Ponds: irregular lobed shapes with a lighter shallow rim and a slow
+  // shimmer, so water reads as water rather than a blue circle.
+  function drawPonds(nowMs) {
+    ponds.forEach((pond) => {
+      ctx.save();
+      // damp shore
+      ctx.fillStyle = 'rgba(96,110,78,0.55)';
+      pond.lobes.forEach((l) => {
+        ctx.beginPath();
+        ctx.arc(pond.x + l.dx, pond.y + l.dy, l.r * 1.12, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      // water body
+      ctx.fillStyle = '#2f5d7a';
+      pond.lobes.forEach((l) => {
+        ctx.beginPath();
+        ctx.arc(pond.x + l.dx, pond.y + l.dy, l.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      if (textureQuality !== 'low') {
+        // shallow highlight toward the top-left of each lobe
+        ctx.fillStyle = 'rgba(120,190,220,0.18)';
+        pond.lobes.forEach((l) => {
+          ctx.beginPath();
+          ctx.arc(pond.x + l.dx - l.r * 0.22, pond.y + l.dy - l.r * 0.24, l.r * 0.6, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        // slow shimmer lines
+        const t = nowMs / 1400;
+        ctx.strokeStyle = 'rgba(200,235,255,0.16)';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+          const yy = pond.y - pond.r * 0.4 + i * pond.r * 0.4 + Math.sin(t + i) * 4;
+          ctx.beginPath();
+          ctx.moveTo(pond.x - pond.r * 0.5, yy);
+          ctx.lineTo(pond.x + pond.r * 0.5, yy);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    });
+  }
+
+  // Crates and barrels — the open-field cover. Drawn with a visible top face
+  // so they read as solid objects you can hide behind, not floor decals.
+  function drawCover() {
+    cover.forEach((c) => {
+      const s = c.size;
+      drawShadow(c.x, c.y + s * 0.45, s * 0.7, s * 0.3);
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.rot);
+      if (c.kind === 'barrel') {
+        ctx.fillStyle = '#7a4a2a';
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        if (textureQuality !== 'low') {
+          ctx.strokeStyle = 'rgba(200,170,120,0.45)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(0, 0, s * 0.32, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = 'rgba(255,255,255,0.10)';
+          ctx.beginPath(); ctx.arc(-s * 0.14, -s * 0.14, s * 0.2, 0, Math.PI * 2); ctx.fill();
+        }
+      } else {
+        ctx.fillStyle = '#8a6335';
+        ctx.fillRect(-s / 2, -s / 2, s, s);
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-s / 2, -s / 2, s, s);
+        if (textureQuality !== 'low') {
+          // plank cross-bracing
+          ctx.strokeStyle = 'rgba(60,40,20,0.55)';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(-s / 2, -s / 2); ctx.lineTo(s / 2, s / 2);
+          ctx.moveTo(s / 2, -s / 2); ctx.lineTo(-s / 2, s / 2);
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(255,255,255,0.10)';
+          ctx.fillRect(-s / 2, -s / 2, s, 3);
+        }
+      }
+      ctx.restore();
+    });
+  }
+
+  // Campfires: animated flame, warm light pool, drifting embers. These are
+  // the map's landmarks — you can orient yourself by them.
+  function drawCampfires(nowMs) {
+    campfires.forEach((f) => {
+      const t = nowMs / 1000 + f.seed;
+      if (textureQuality !== 'low') {
+        const pulse = 0.85 + Math.sin(t * 3) * 0.15;
+        const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, 150 * pulse);
+        g.addColorStop(0, 'rgba(255,170,60,0.28)');
+        g.addColorStop(1, 'rgba(255,140,40,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, 150 * pulse, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // stone ring
+      ctx.fillStyle = '#6b6b70';
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(f.x + Math.cos(a) * 22, f.y + Math.sin(a) * 15, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // logs
+      ctx.strokeStyle = '#4a3320';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(f.x - 12, f.y + 5); ctx.lineTo(f.x + 12, f.y - 5);
+      ctx.moveTo(f.x - 12, f.y - 5); ctx.lineTo(f.x + 12, f.y + 5);
+      ctx.stroke();
+      // flame — three stacked flickering tongues
+      for (let i = 0; i < 3; i++) {
+        const fl = Math.sin(t * 7 + i * 2.1) * 0.5 + 0.5;
+        const h = 16 + fl * 12 - i * 3;
+        ctx.beginPath();
+        ctx.moveTo(f.x - 7 + i * 3, f.y + 2);
+        ctx.quadraticCurveTo(f.x - 2 + i * 3, f.y - h * 0.6, f.x + i * 2, f.y - h);
+        ctx.quadraticCurveTo(f.x + 5 + i * 2, f.y - h * 0.5, f.x + 7 - i, f.y + 2);
+        ctx.closePath();
+        ctx.fillStyle = i === 0 ? 'rgba(255,110,30,0.9)' : i === 1 ? 'rgba(255,170,40,0.9)' : 'rgba(255,225,120,0.85)';
+        ctx.fill();
+      }
+      if (textureQuality === 'high' || textureQuality === 'ultra') {
+        // embers drifting upward
+        for (let i = 0; i < 4; i++) {
+          const life = ((t * 0.5 + i * 0.27) % 1);
+          ctx.globalAlpha = 1 - life;
+          ctx.fillStyle = '#ffb347';
+          ctx.fillRect(f.x + Math.sin(t * 2 + i * 3) * 12 - 1, f.y - 10 - life * 55, 2.5, 2.5);
+          ctx.globalAlpha = 1;
+        }
+      }
+    });
+  }
+
+  function drawLamps(nowMs) {
+    lamps.forEach((l) => {
+      if (textureQuality !== 'low') {
+        const flicker = 0.94 + Math.sin(nowMs / 220 + l.seed) * 0.06;
+        const g = ctx.createRadialGradient(l.x, l.y - 6, 0, l.x, l.y - 6, 120 * flicker);
+        g.addColorStop(0, 'rgba(255,225,150,0.20)');
+        g.addColorStop(1, 'rgba(255,220,150,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(l.x, l.y - 6, 120 * flicker, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      drawShadow(l.x, l.y + 6, 9, 4);
+      ctx.fillStyle = '#3c3f47';
+      ctx.fillRect(l.x - 3, l.y - 34, 6, 40);      // post
+      ctx.fillRect(l.x - 9, l.y + 4, 18, 5);       // base
+      ctx.fillStyle = '#ffe08a';
+      ctx.beginPath();
+      ctx.arc(l.x, l.y - 38, 7, 0, Math.PI * 2);   // lamp head
+      ctx.fill();
+      ctx.strokeStyle = '#2b2e35';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
   }
 
   // ---- Shadows (quality-dependent softness/visibility) ----
@@ -2748,7 +3521,13 @@
     const instSpeed = dt > 0 ? moveDist / dt : 0;
     const targetWalk = Math.max(0, Math.min(1, instSpeed / SPRINT_SPEED_PER_SEC));
     anim.walkAmount += (targetWalk - anim.walkAmount) * Math.min(1, dt * 8);
+    const prevBob = anim.bobPhase;
     anim.bobPhase += dt * (4 + anim.walkAmount * 5);
+    // One puff per half-cycle of the bob — i.e. once per footfall — and only
+    // when actually moving at a decent clip.
+    if (anim.walkAmount > 0.25 && Math.floor(prevBob * 2) !== Math.floor(anim.bobPhase * 2)) {
+      if (textureQuality !== 'low') spawnFootstepDust(x, y);
+    }
     anim.lastX = x;
     anim.lastY = y;
 
@@ -2907,9 +3686,34 @@
     minimapCtx.fillStyle = 'rgba(47,107,47,0.9)';
     minimapCtx.fillRect(0, 0, minimap.width, minimap.height);
 
+    // Roads and water first — these are the features you actually navigate
+    // by, so the minimap should show the same landmarks the world does.
+    minimapCtx.strokeStyle = 'rgba(150,126,92,0.65)';
+    minimapCtx.lineWidth = 1.5;
+    paths.forEach((p) => {
+      minimapCtx.beginPath();
+      minimapCtx.moveTo(p.x1 * scaleX, p.y1 * scaleY);
+      minimapCtx.lineTo(p.x2 * scaleX, p.y2 * scaleY);
+      minimapCtx.stroke();
+    });
+    minimapCtx.fillStyle = 'rgba(47,93,122,0.95)';
+    ponds.forEach((pond) => {
+      minimapCtx.beginPath();
+      minimapCtx.ellipse(pond.x * scaleX, pond.y * scaleY, Math.max(2, pond.r * scaleX), Math.max(1.5, pond.r * scaleY), 0, 0, Math.PI * 2);
+      minimapCtx.fill();
+    });
+
     houses.forEach((h) => {
       minimapCtx.fillStyle = 'rgba(139,58,58,0.9)';
       minimapCtx.fillRect(h.x * scaleX, h.y * scaleY, Math.max(2, h.w * scaleX), Math.max(2, h.h * scaleY));
+    });
+
+    // Campfires as warm pinpricks — easy orientation markers.
+    minimapCtx.fillStyle = 'rgba(255,170,60,0.95)';
+    campfires.forEach((f) => {
+      minimapCtx.beginPath();
+      minimapCtx.arc(f.x * scaleX, f.y * scaleY, 1.8, 0, Math.PI * 2);
+      minimapCtx.fill();
     });
 
     for (const id in players) {
@@ -2977,6 +3781,15 @@
     if (!me) return;
     healthFill.style.width = Math.max(0, (me.health / me.maxHealth) * 100) + '%';
     staminaFill.style.width = Math.max(0, (me.stamina / me.maxStamina) * 100) + '%';
+
+    // The armor bar only appears once you actually have armor, so an
+    // unarmored player isn't staring at a permanently empty third bar.
+    const armor = me.armor || 0;
+    const maxArmor = me.maxArmor || 50;
+    armorTrack.classList.toggle('has-armor', armor > 0);
+    armorFill.style.width = Math.max(0, (armor / maxArmor) * 100) + '%';
+
+    adrenalineIndicator.hidden = !(me.adrenalineUntil && me.adrenalineUntil > Date.now());
 
     const isReloading = me.reloadingUntil > Date.now();
 
@@ -3062,8 +3875,9 @@
       myX = (renderX !== null) ? renderX : (players[myId] ? players[myId].x : WORLD_W / 2);
       myY = (renderY !== null) ? renderY : (players[myId] ? players[myId].y : WORLD_H / 2);
     }
-    const camX = clampCamera(myX - viewportW / 2, viewportW, WORLD_W);
-    const camY = clampCamera(myY - viewportH / 2, viewportH, WORLD_H);
+    const shake = updateScreenShake(dt);
+    const camX = clampCamera(myX - viewportW / 2, viewportW, WORLD_W) + shake.x;
+    const camY = clampCamera(myY - viewportH / 2, viewportH, WORLD_H) + shake.y;
     lastCamX = camX;
     lastCamY = camY;
 
@@ -3073,13 +3887,22 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(dpr, 0, 0, dpr, -camX * dpr, -camY * dpr);
 
+    // Ground layers first (flat, walked over), then standing props, then
+    // actors, then anything that should sit above them.
     drawGrass(camX, camY);
+    drawPaths();
+    drawPonds(now);
+    drawGroundDecals();
     drawHouseFloors();
     drawWalls();
     drawDoors(dt);
     drawChests();
     drawBushes();
+    drawCover();
     drawRocksAndTrees();
+    drawCampfires(now);
+    drawLamps(now);
+    drawParticles(dt);
 
     for (const id in players) {
       const p = players[id];
@@ -3089,10 +3912,12 @@
       drawPlayer(id, p, x, y, dt);
     }
     drawBullets();
+    drawDamageNumbers(dt);
 
     drawRoofs(myX, myY);
     drawMinimap(myX, myY);
     updateHud(players[myId]);
+    updateRoundTimer();
 
     requestAnimationFrame(draw);
   }
@@ -3376,12 +4201,23 @@
     bulletRender.clear();
     muzzleFlashes = [];
     impactSparks = [];
+    particles = [];
+    groundDecals = [];
+    damageNumbers = [];
+    shakeAmount = 0;
     killFeedEl.innerHTML = '';
     closeChestModal();
+    setScoreboardOpen(false);
     roundOverOverlay.classList.remove('visible');
+    streakBanner.classList.remove('show');
+    hitmarkerEl.classList.remove('show', 'kill');
     damageVignette.classList.remove('flash');
     lowHealthPulse.classList.remove('visible');
     respawnOverlay.classList.remove('visible');
+    armorTrack.classList.remove('has-armor');
+    adrenalineIndicator.hidden = true;
+    roundTimerEl.hidden = true;
+    lastRoundEndsAt = 0;
     lastKnownHealth = null;
     wasAlive = true;
     stopAllWeaponSfx(); // a shotgun blast ringing on for ~3s shouldn't tail off into the lobby screen
@@ -3607,15 +4443,16 @@
     chestModalEmpty.hidden = untaken.length > 0;
 
     untaken.forEach(({ slot, type }) => {
+      const rarity = ITEM_RARITY_CLIENT[type] || 'common';
       const row = document.createElement('div');
-      row.className = 'chest-item-row';
+      row.className = 'chest-item-row rarity-border-' + rarity;
 
       const icon = document.createElement('span');
       icon.className = 'chest-item-icon';
       icon.textContent = ITEM_ICON[type] || '?';
 
       const label = document.createElement('span');
-      label.className = 'chest-item-label';
+      label.className = 'chest-item-label rarity-' + rarity;
       label.textContent = ITEM_LABEL[type] || type;
 
       const takeBtn = document.createElement('button');
@@ -3689,7 +4526,10 @@
   const ROUND_END_LABEL = { timeUp: "Time's up" };
 
   function showRoundOver(scores, reason) {
-    roundOverReason.textContent = ROUND_END_LABEL[reason] || '';
+    const winner = scores && scores.length && scores[0].kills > 0 ? scores[0] : null;
+    roundOverReason.textContent = winner
+      ? `${winner.name} wins — ${ROUND_END_LABEL[reason] || ''}`.trim()
+      : (ROUND_END_LABEL[reason] || '');
     roundOverScores.innerHTML = '';
     scores.forEach((s, idx) => {
       const row = document.createElement('div');
@@ -3705,7 +4545,8 @@
 
       const kd = document.createElement('span');
       kd.className = 'kd';
-      kd.textContent = `${s.kills}K / ${s.deaths}D`;
+      kd.textContent = `${s.kills}K / ${s.deaths}D`
+        + ((s.bestStreak || 0) >= 2 ? `  🔥${s.bestStreak}` : '');
 
       row.append(dot, name, kd);
       roundOverScores.appendChild(row);

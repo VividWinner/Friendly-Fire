@@ -8,12 +8,24 @@ kills when the 5-minute clock runs out wins the round.
 ## What's in it
 
 - **Movement + combat:** WASD/left-stick to move, mouse or right-stick to aim
-  and fire — independently of each other, like a twin-stick shooter. Four
-  weapons (pistol, SMG, rifle, shotgun), each with its own magazine size,
-  reload time, damage, fire rate, and range — reload with R (or the on-screen
-  button on mobile), complete with a weapon-tilt animation. The server
-  simulates every bullet and resolves every hit — clients never decide their
-  own hits.
+  and fire — independently of each other, like a twin-stick shooter. The
+  server simulates every bullet and resolves every hit — clients never decide
+  their own hits.
+- **Weapon balance:** every gun wins in one range band and loses outside it.
+  Shotgun kills fastest in the game (~700ms) but only inside ~340px; SMG has
+  the highest sustained DPS out to ~665px; rifle reaches ~1575px with pinpoint
+  accuracy but a slow fire rate punishes misses; pistol is a solid all-rounder.
+  Reload with R (or the on-screen button on mobile).
+- **Armor & adrenaline:** armor plates soak damage before health (150 effective
+  HP when fully plated — exactly one extra rifle shot) and don't regenerate, so
+  chests stay worth visiting. Adrenaline gives 6s of +35% speed with no stamina
+  drain — for closing shotgun distance or escaping.
+- **Feedback & juice:** hitmarkers, floating damage numbers, killstreak and
+  multi-kill banners, blood spray and armor sparks, ejected shell casings,
+  footstep dust, death bursts, lingering blood decals, and screen shake scaled
+  to what actually hit you.
+- **Live scoreboard:** hold TAB mid-round for kills, deaths and active streaks.
+  A round timer sits at the top and turns red in the final 30 seconds.
 - **Positional audio:** every gunshot in the match is audible to everyone,
   panned left/right and faded by distance based on where it happened
   relative to you — a firefight across the map sounds distant, one next to
@@ -25,10 +37,14 @@ kills when the 5-minute clock runs out wins the round.
   for real.
 - **World:** a 9600×7200px map with 32 procedurally placed houses (each with
   multiple rooms, windows, entrance steps, and doors that swing open as you
-  pass), guaranteed clear of each other by a jittered-grid placement system,
-  plus rocks, trees, and bushes for cover. Standing outside a house, you
-  can't see (or be seen by) anyone inside it.
-- **Chests + inventory:** each chest holds up to 3 items. Walk up and press E
+  pass), guaranteed clear of each other by a jittered-grid placement system.
+  Crates and barrels give real cover out in the open field, dirt paths link
+  each house to its nearest neighbour into a village road network, and ponds,
+  animated campfires and lamp posts act as landmarks you can navigate by —
+  all mirrored on the minimap. Standing outside a house, you can't see (or be
+  seen by) anyone inside it.
+- **Chests + inventory:** each chest holds up to 4 items, colour-coded by
+  rarity (common / uncommon / rare). Walk up and press E
   (or click the chest directly) to see what's inside, then take whichever
   items you want — they go into one of your 6 inventory slots (slot 0 is
   always your pistol). Ammo pickups top up a weapon you already have instead

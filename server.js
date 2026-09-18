@@ -178,6 +178,107 @@ const ROCKS = scatterCircles(248, 12, 20, 32);
 const TREES = scatterCircles(315, 12, 16, 50);
 const BUSHES = scatterCircles(225, 10, 15, 18);
 
+// ---- Environmental set dressing ----
+// Beyond looking better, most of this is *tactical*: crates and barrels are
+// solid cover you can fight around in the open field, where previously there
+// was nothing but trees. Ponds and paths are purely visual (you can run
+// straight through them) but they break up the endless-grass problem and
+// give the map landmarks you can actually navigate by.
+
+// Cover props: collidable, placed in the open (away from houses) so that
+// crossing open ground isn't a guaranteed death sentence.
+function scatterCover(count) {
+  const list = [];
+  let attempts = 0;
+  while (list.length < count && attempts < count * 60) {
+    attempts++;
+    const isBarrel = Math.random() < 0.4;
+    const size = isBarrel ? 22 : 26 + Math.random() * 10;
+    const x = 200 + Math.random() * (WORLD_WIDTH - 400);
+    const y = 200 + Math.random() * (WORLD_HEIGHT - 400);
+
+    const nearHouse = HOUSES.some((h) => x > h.x - 90 && x < h.x + h.w + 90 && y > h.y - 90 && y < h.y + h.h + 90);
+    if (nearHouse) continue;
+    if (circleHitsSolid(x, y, size)) continue;
+    const tooClose = list.some((c) => Math.hypot(c.x - x, c.y - y) < c.size + size + 70);
+    if (tooClose) continue;
+
+    list.push({
+      x, y, size,
+      kind: isBarrel ? 'barrel' : 'crate',
+      rot: (Math.random() - 0.5) * 0.5, // slight tilt so they don't look stamped
+    });
+  }
+  return list;
+}
+
+// Ponds — purely visual, walk-through. Placed clear of houses.
+function scatterPonds(count) {
+  const list = [];
+  let attempts = 0;
+  while (list.length < count && attempts < count * 50) {
+    attempts++;
+    const r = 90 + Math.random() * 130;
+    const x = r + 150 + Math.random() * (WORLD_WIDTH - r * 2 - 300);
+    const y = r + 150 + Math.random() * (WORLD_HEIGHT - r * 2 - 300);
+    const nearHouse = HOUSES.some((h) => x > h.x - r - 80 && x < h.x + h.w + r + 80 && y > h.y - r - 80 && y < h.y + h.h + r + 80);
+    if (nearHouse) continue;
+    if (list.some((p) => Math.hypot(p.x - x, p.y - y) < p.r + r + 300)) continue;
+    // A couple of irregular lobes make it read as a pond, not a circle.
+    const lobes = Array.from({ length: 3 }, (_, i) => ({
+      dx: Math.cos((i / 3) * Math.PI * 2) * r * 0.45,
+      dy: Math.sin((i / 3) * Math.PI * 2) * r * 0.45,
+      r: r * (0.55 + Math.random() * 0.25),
+    }));
+    list.push({ x, y, r, lobes });
+  }
+  return list;
+}
+
+// Campfires (animated flame + light pool client-side) and lamp posts —
+// landmarks that make the map navigable at a glance.
+function scatterLandmarks(count, kind) {
+  const list = [];
+  let attempts = 0;
+  while (list.length < count && attempts < count * 50) {
+    attempts++;
+    const x = 250 + Math.random() * (WORLD_WIDTH - 500);
+    const y = 250 + Math.random() * (WORLD_HEIGHT - 500);
+    if (HOUSES.some((h) => x > h.x - 70 && x < h.x + h.w + 70 && y > h.y - 70 && y < h.y + h.h + 70)) continue;
+    if (circleHitsSolid(x, y, 30)) continue;
+    if (list.some((l) => Math.hypot(l.x - x, l.y - y) < 600)) continue;
+    list.push({ x, y, kind, seed: Math.random() * 1000 });
+  }
+  return list;
+}
+
+// Dirt paths: each house links to its nearest neighbour, which naturally
+// produces a connected village road network rather than random streaks.
+function buildPaths() {
+  const paths = [];
+  HOUSES.forEach((h, i) => {
+    const from = { x: h.x + h.w / 2, y: h.y + h.h + 18 };
+    let best = null, bestDist = Infinity;
+    HOUSES.forEach((o, j) => {
+      if (i === j) return;
+      const to = { x: o.x + o.w / 2, y: o.y + o.h + 18 };
+      const d = Math.hypot(to.x - from.x, to.y - from.y);
+      if (d < bestDist) { bestDist = d; best = to; }
+    });
+    if (best && bestDist < 2600) paths.push({ x1: from.x, y1: from.y, x2: best.x, y2: best.y });
+  });
+  return paths;
+}
+
+const COVER = scatterCover(150);
+const PONDS = scatterPonds(14);
+const CAMPFIRES = scatterLandmarks(10, 'campfire');
+const LAMPS = scatterLandmarks(16, 'lamp');
+const PATHS = buildPaths();
+
+// Cover props are solid — fold them into the collision set now that they exist.
+COVER.forEach((c) => OBSTACLES.push({ x: c.x - c.size / 2, y: c.y - c.size / 2, w: c.size, h: c.size }));
+
 function circleHitsSolid(x, y, radius) {
   for (const o of OBSTACLES) if (circleHitsRect(x, y, radius, o)) return true;
   for (const c of ROCKS) {
@@ -208,15 +309,38 @@ function randomSpawn() {
 // — that scarcity is the point of "manually" choosing what to loot.
 const INVENTORY_SIZE = 6;
 const WEAPON_TYPES = ['pistol', 'shotgun', 'rifle', 'smg'];
-const CONSUMABLE_TYPES = ['health_pack', 'stamina_potion'];
+const CONSUMABLE_TYPES = ['health_pack', 'stamina_potion', 'armor_plate', 'adrenaline'];
 
+// Armor sits in front of health and soaks damage first, so a plated player
+// effectively has 150 EHP instead of 100 — a meaningful but not unkillable
+// edge, and it doesn't regenerate, so it's a resource you spend by fighting.
+const MAX_ARMOR = 50;
+const ARMOR_PER_PLATE = 25;
+// Adrenaline: a short burst of speed + infinite stamina. Great for closing
+// distance with a shotgun or disengaging when low — a tactical option
+// rather than raw power.
+const ADRENALINE_MS = 6000;
+const ADRENALINE_SPEED_MULT = 1.35;
+
+// Balance philosophy: every weapon must WIN somewhere and LOSE somewhere.
+// Previously the rifle had the best DPS, the fastest time-to-kill, the
+// longest range and the tightest spread simultaneously, which made every
+// other weapon pointless. Now each one owns a distinct range band:
+//
+//   shotgun — fastest kill in the game (~700ms) but only inside ~340px;
+//             at range most pellets miss and it becomes near-useless.
+//   smg     — highest sustained DPS (~106) out to ~665px, but wide spread
+//             means it needs you to stay close and keep the beam on target.
+//   rifle   — reaches ~1575px with pinpoint accuracy, but a slow fire rate
+//             (~1290ms kill) punishes every missed shot. Precision, not spam.
+//   pistol  — the starter: respectable everywhere, dominant nowhere.
 const WEAPON_STATS = {
-  pistol:  { damage: 14, fireRateMs: 260, bulletSpeed: 900,  spread: 0.03,  lifetimeMs: 900,  pellets: 1, bulletRadius: 3,   magSize: 12, reloadMs: 900,  startAmmo: 90 },
-  smg:     { damage: 9,  fireRateMs: 90,  bulletSpeed: 950,  spread: 0.09,  lifetimeMs: 750,  pellets: 1, bulletRadius: 3,   magSize: 25, reloadMs: 1400, startAmmo: 90 },
-  rifle:   { damage: 28, fireRateMs: 230, bulletSpeed: 1300, spread: 0.015, lifetimeMs: 1000, pellets: 1, bulletRadius: 3.5, magSize: 20, reloadMs: 1700, startAmmo: 80 },
-  shotgun: { damage: 9,  fireRateMs: 750, bulletSpeed: 800,  spread: 0.22,  lifetimeMs: 380,  pellets: 6, bulletRadius: 3,   magSize: 6,  reloadMs: 2200, startAmmo: 30 },
+  pistol:  { damage: 16, fireRateMs: 240, bulletSpeed: 1000, spread: 0.028, lifetimeMs: 900,  pellets: 1, bulletRadius: 3,   magSize: 14, reloadMs: 850,  startAmmo: 90 },
+  smg:     { damage: 9,  fireRateMs: 85,  bulletSpeed: 950,  spread: 0.10,  lifetimeMs: 700,  pellets: 1, bulletRadius: 3,   magSize: 30, reloadMs: 1500, startAmmo: 120 },
+  rifle:   { damage: 32, fireRateMs: 430, bulletSpeed: 1500, spread: 0.010, lifetimeMs: 1050, pellets: 1, bulletRadius: 3.5, magSize: 10, reloadMs: 1800, startAmmo: 60 },
+  shotgun: { damage: 8,  fireRateMs: 700, bulletSpeed: 820,  spread: 0.24,  lifetimeMs: 420,  pellets: 8, bulletRadius: 3,   magSize: 6,  reloadMs: 2100, startAmmo: 36 },
 };
-const AMMO_REFILL = { pistol: 12, smg: 20, rifle: 15, shotgun: 6 }; // added to RESERVE, not the magazine directly
+const AMMO_REFILL = { pistol: 14, smg: 30, rifle: 10, shotgun: 6 }; // added to RESERVE, not the magazine directly
 
 // A fresh weapon starts with a full magazine and whatever's left over as
 // reserve — never more ammo than startAmmo actually allows.
@@ -270,10 +394,22 @@ function useItem(p, slot) {
   const item = p.inventory[slot];
   if (!item) return;
   if (item.type === 'health_pack') {
+    if (p.health >= p.maxHealth) return; // don't waste it at full health
     p.health = Math.min(p.maxHealth, p.health + 35);
     p.inventory[slot] = null;
   } else if (item.type === 'stamina_potion') {
+    if (p.stamina >= p.maxStamina) return;
     p.stamina = p.maxStamina;
+    p.exhausted = false;
+    p.inventory[slot] = null;
+  } else if (item.type === 'armor_plate') {
+    if (p.armor >= MAX_ARMOR) return; // already fully plated
+    p.armor = Math.min(MAX_ARMOR, p.armor + ARMOR_PER_PLATE);
+    p.inventory[slot] = null;
+  } else if (item.type === 'adrenaline') {
+    p.adrenalineUntil = Date.now() + ADRENALINE_MS;
+    p.stamina = p.maxStamina;
+    p.exhausted = false;
     p.inventory[slot] = null;
   }
 }
@@ -282,17 +418,25 @@ function useItem(p, slot) {
 // Each chest has a fixed number of item slots, independently rolled; some
 // come up empty. Opening a chest reveals ALL of them at once, and anyone in
 // range can take individual items — loot isn't claimed until it's taken.
-const CHEST_SLOT_COUNT = 3;
-const CHEST_EMPTY_SLOT_CHANCE = 0.35;
+const CHEST_SLOT_COUNT = 4;   // a chest worth crossing open ground for
+const CHEST_EMPTY_SLOT_CHANCE = 0.3;
 
+// Rarity drives both the drop rate and the colour the client tints the item
+// with, so "is this chest worth crossing the map for" is readable at a glance.
+//   common (grey)  — ammo, stamina
+//   uncommon (green) — sustain: health, armor
+//   rare (blue)    — the situational power weapons
 const LOOT_TABLE = [
-  { type: 'pistol_ammo', weight: 22 },
-  { type: 'shotgun', weight: 12 },
-  { type: 'rifle', weight: 10 },
-  { type: 'smg', weight: 12 },
-  { type: 'health_pack', weight: 24 },
-  { type: 'stamina_potion', weight: 20 },
+  { type: 'pistol_ammo',    weight: 20, rarity: 'common' },
+  { type: 'stamina_potion', weight: 14, rarity: 'common' },
+  { type: 'health_pack',    weight: 20, rarity: 'uncommon' },
+  { type: 'armor_plate',    weight: 16, rarity: 'uncommon' },
+  { type: 'adrenaline',     weight: 10, rarity: 'uncommon' },
+  { type: 'smg',            weight: 9,  rarity: 'rare' },
+  { type: 'shotgun',        weight: 8,  rarity: 'rare' },
+  { type: 'rifle',          weight: 6,  rarity: 'rare' },
 ];
+const ITEM_RARITY = LOOT_TABLE.reduce((acc, l) => { acc[l.type] = l.rarity; return acc; }, {});
 const LOOT_TOTAL_WEIGHT = LOOT_TABLE.reduce((sum, l) => sum + l.weight, 0);
 
 function rollLoot() {
@@ -306,7 +450,8 @@ function rollLoot() {
 
 function rollChestSlot() {
   if (Math.random() < CHEST_EMPTY_SLOT_CHANCE) return null;
-  return { type: rollLoot(), taken: false };
+  const type = rollLoot();
+  return { type, rarity: ITEM_RARITY[type] || 'common', taken: false };
 }
 
 function freshChestState() {
@@ -325,19 +470,25 @@ function generateRoomCode() {
   return code;
 }
 
-function createPlayer(pending) {
+function createPlayer(pending, id) {
   return {
+    id,
     x: 0, y: 0,
     color: (pending.color && COLORS.includes(pending.color)) ? pending.color : COLORS[Math.floor(Math.random() * COLORS.length)],
     name: pending.name || 'Player',
     ready: false,
     health: 100, maxHealth: 100,
+    armor: 0, maxArmor: MAX_ARMOR, // soaks damage before health; looted, never regenerates
     stamina: 100, maxStamina: 100,
     sprinting: false,
     exhausted: false, // true once stamina hits 0; stays true until it recovers a bit — prevents flicker
+    adrenalineUntil: 0, // timestamp; while in the future, faster + stamina doesn't drain
     alive: true,
     kills: 0,
     deaths: 0,
+    streak: 0,      // consecutive kills without dying — drives the killstreak banners
+    bestStreak: 0,  // best streak this round, shown on the results screen
+    lastKillAt: 0,  // for multi-kill ("DOUBLE KILL") detection
     respawnAt: 0,
     aimAngle: 0,
     lastShotAt: {}, // weapon type -> timestamp of last shot with it, for independent per-weapon cooldowns
@@ -353,12 +504,17 @@ function resetForRound(p) {
   const spawn = randomSpawn();
   p.x = spawn.x; p.y = spawn.y;
   p.health = p.maxHealth;
+  p.armor = 0;
   p.stamina = p.maxStamina;
   p.sprinting = false;
   p.exhausted = false;
+  p.adrenalineUntil = 0;
   p.alive = true;
   p.kills = 0;
   p.deaths = 0;
+  p.streak = 0;
+  p.bestStreak = 0;
+  p.lastKillAt = 0;
   p.respawnAt = 0;
   p.aimAngle = 0;
   p.lastShotAt = {};
@@ -372,7 +528,10 @@ function revivePlayer(p) {
   const spawn = randomSpawn();
   p.x = spawn.x; p.y = spawn.y;
   p.health = p.maxHealth;
+  p.armor = 0;              // armor must be re-looted — keeps chests worth visiting all round
   p.stamina = p.maxStamina;
+  p.exhausted = false;
+  p.adrenalineUntil = 0;
   p.alive = true;
   p.reloadingUntil = 0;
   p.reloadingSlot = -1;
@@ -398,6 +557,7 @@ function tryStartGame(room, code) {
   room.roundEndsAt = 0; // set once the countdown actually elapses, in tick()
   room.chestState = freshChestState();
   room.bullets = [];
+  room.damageEvents = [];
   ids.forEach((pid) => resetForRound(room.players[pid]));
 
   const msg = JSON.stringify({ type: 'gameStart', countdownMs: COUNTDOWN_MS });
@@ -405,31 +565,73 @@ function tryStartGame(room, code) {
   console.log(`[room] ${code} started with ${ids.length} player(s)`);
 }
 
-function broadcastKill(room, shooter, target, weaponType) {
+function broadcastKill(room, shooter, target, weaponType, multi) {
   const msg = JSON.stringify({
     type: 'kill',
+    killerId: shooter ? shooter.id : null,
     killerName: shooter ? shooter.name : null,
     killerColor: shooter ? shooter.color : null,
     victimName: target.name,
     victimColor: target.color,
     weapon: weaponType,
     selfKill: !shooter || shooter === target,
+    streak: shooter ? (shooter.streak || 0) : 0,
+    multi: multi || 0,
   });
   room.clients.forEach((c) => { if (c.readyState === WebSocket.OPEN) c.send(msg); });
 }
 
-function applyDamage(room, shooterId, targetId, damage, weaponType) {
+const MULTI_KILL_WINDOW_MS = 4000; // two kills inside this window counts as a multi-kill
+
+// Damage lands on armor first, then health. Every hit emits a damageEvent
+// so clients can show floating damage numbers at the impact point and a
+// hitmarker for the shooter — that feedback is most of what makes shooting
+// feel good, and it can only be computed accurately here where the real
+// numbers live.
+function applyDamage(room, shooterId, targetId, damage, weaponType, hitX, hitY) {
   const target = room.players[targetId];
   if (!target || !target.alive) return;
-  target.health -= damage;
-  if (target.health <= 0) {
+
+  let remaining = damage;
+  let armorAbsorbed = 0;
+  if (target.armor > 0) {
+    armorAbsorbed = Math.min(target.armor, remaining);
+    target.armor -= armorAbsorbed;
+    remaining -= armorAbsorbed;
+  }
+  target.health -= remaining;
+
+  const killed = target.health <= 0;
+  const shooter = room.players[shooterId];
+
+  room.damageEvents.push({
+    x: hitX, y: hitY,
+    amount: damage,
+    armor: armorAbsorbed > 0,
+    shooterId,
+    targetId,
+    killed,
+  });
+
+  if (killed) {
     target.health = 0;
     target.alive = false;
+    target.armor = 0;
     target.deaths = (target.deaths || 0) + 1;
     target.respawnAt = Date.now() + RESPAWN_MS;
-    const shooter = room.players[shooterId];
-    if (shooter && shooter !== target) shooter.kills = (shooter.kills || 0) + 1;
-    broadcastKill(room, shooter, target, weaponType);
+    target.streak = 0; // dying always ends your streak
+
+    let multi = 0;
+    if (shooter && shooter !== target) {
+      shooter.kills = (shooter.kills || 0) + 1;
+      const now = Date.now();
+      multi = (now - (shooter.lastKillAt || 0) <= MULTI_KILL_WINDOW_MS) ? (shooter.multiCount || 1) + 1 : 1;
+      shooter.multiCount = multi;
+      shooter.lastKillAt = now;
+      shooter.streak = (shooter.streak || 0) + 1;
+      if (shooter.streak > (shooter.bestStreak || 0)) shooter.bestStreak = shooter.streak;
+    }
+    broadcastKill(room, shooter, target, weaponType, multi);
   }
 }
 
@@ -437,8 +639,9 @@ function endRound(room, reason) {
   if (room.phase !== 'playing') return;
   room.phase = 'roundOver';
   const scores = Object.values(room.players)
-    .map((p) => ({ name: p.name, color: p.color, kills: p.kills || 0, deaths: p.deaths || 0 }))
-    .sort((a, b) => b.kills - a.kills);
+    .map((p) => ({ name: p.name, color: p.color, kills: p.kills || 0, deaths: p.deaths || 0, bestStreak: p.bestStreak || 0 }))
+    // Most kills wins; fewest deaths breaks a tie, then best streak.
+    .sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths) || (b.bestStreak - a.bestStreak));
   const msg = JSON.stringify({ type: 'roundOver', scores, reason });
   room.clients.forEach((c) => { if (c.readyState === WebSocket.OPEN) c.send(msg); });
   setTimeout(() => returnToLobby(room), ROUND_OVER_DISPLAY_MS);
@@ -453,7 +656,7 @@ function returnToLobby(room) {
   // Anyone who joined mid-round as a spectator becomes a real, joinable
   // party member now that a fresh round is being set up — this is exactly
   // the moment they were waiting for.
-  room.spectators.forEach((pending, sid) => { room.players[sid] = createPlayer(pending); });
+  room.spectators.forEach((pending, sid) => { room.players[sid] = createPlayer(pending, sid); });
   room.spectators.clear();
 
   broadcastLobby(room);
@@ -543,6 +746,7 @@ let nextBulletId = 1;
 const WORLD_PAYLOAD = {
   w: WORLD_WIDTH, h: WORLD_HEIGHT,
   obstacles: OBSTACLES, houses: HOUSES, rocks: ROCKS, trees: TREES, bushes: BUSHES, chests: CHESTS,
+  cover: COVER, ponds: PONDS, campfires: CAMPFIRES, lamps: LAMPS, paths: PATHS,
 };
 
 wss.on('connection', (ws) => {
@@ -572,8 +776,8 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'createRoom') {
       const code = generateRoomCode();
-      const room = { code, players: {}, spectators: new Map(), clients: new Set(), phase: 'lobby', roundStartsAt: 0, roundEndsAt: 0, chestState: [], bullets: [] };
-      room.players[id] = createPlayer(ws.pending);
+      const room = { code, players: {}, spectators: new Map(), clients: new Set(), phase: 'lobby', roundStartsAt: 0, roundEndsAt: 0, chestState: [], bullets: [], damageEvents: [] };
+      room.players[id] = createPlayer(ws.pending, id);
       room.clients.add(ws);
       rooms.set(code, room);
       ws.roomCode = code;
@@ -605,7 +809,7 @@ wss.on('connection', (ws) => {
 
       if (Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM) { ws.send(JSON.stringify({ type: 'roomError', message: 'That room is full (4/4).' })); return; }
 
-      room.players[id] = createPlayer(ws.pending);
+      room.players[id] = createPlayer(ws.pending, id);
       room.clients.add(ws);
       ws.roomCode = code;
       ws.send(JSON.stringify({ type: 'roomJoined', code, started: false, spectating: false }));
@@ -782,12 +986,14 @@ function movePlayer(p) {
   if (p.stamina <= 0) p.exhausted = true;
   else if (p.stamina >= p.maxStamina * 0.15) p.exhausted = false;
 
-  const sprinting = p.keys.sprint && !p.exhausted && p.stamina > 0 && wantsToMove;
+  const onAdrenaline = p.adrenalineUntil > Date.now();
+  // Adrenaline lets you sprint regardless of stamina, and doesn't burn it.
+  const sprinting = p.keys.sprint && wantsToMove && (onAdrenaline || (!p.exhausted && p.stamina > 0));
   p.sprinting = sprinting;
-  const speed = sprinting ? SPRINT_SPEED : BASE_SPEED;
-  p.stamina = sprinting
-    ? Math.max(0, p.stamina - SPRINT_DRAIN)
-    : Math.min(p.maxStamina, p.stamina + SPRINT_REGEN);
+  let speed = sprinting ? SPRINT_SPEED : BASE_SPEED;
+  if (onAdrenaline) speed *= ADRENALINE_SPEED_MULT;
+  if (sprinting && !onAdrenaline) p.stamina = Math.max(0, p.stamina - SPRINT_DRAIN);
+  else p.stamina = Math.min(p.maxStamina, p.stamina + SPRINT_REGEN);
 
   let newX = p.x;
   if (p.keys.left) newX -= speed;
@@ -846,7 +1052,7 @@ function moveBullets(room, dtSec) {
         if (!target.alive) continue;
         const dx = b.x - target.x, dy = b.y - target.y;
         if (dx * dx + dy * dy < (b.radius + PLAYER_RADIUS) * (b.radius + PLAYER_RADIUS)) {
-          applyDamage(room, b.ownerId, pid, b.damage, b.type);
+          applyDamage(room, b.ownerId, pid, b.damage, b.type, b.x, b.y);
           hit = true;
           break;
         }
@@ -896,8 +1102,10 @@ function tickRoom(room) {
     chests: room.chestState,
     bullets: room.bullets,
     roundEndsAt: room.roundEndsAt || 0,
+    damageEvents: room.damageEvents,
   });
   room.clients.forEach((client) => { if (client.readyState === WebSocket.OPEN) client.send(stateMsg); });
+  room.damageEvents.length = 0; // consumed — these are one-shot notifications, not persistent state
 }
 
 setInterval(tick, 1000 / TICK_RATE);
